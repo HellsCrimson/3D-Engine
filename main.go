@@ -2,7 +2,7 @@ package main
 
 import (
 	"log"
-	"reflect"
+	"unsafe"
 
 	"github.com/go-gl/gl/v4.6-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
@@ -44,31 +44,46 @@ func main() {
 	if err != nil {
 		log.Fatalln("Could not create a shader program:", err)
 	}
+	defer gl.DeleteProgram(g_shaderProgram)
 
-	// Test Triangle
-	verticies := []float32{
-		-0.5, -0.5, 0.0,
-		0.5, -0.5, 0.0,
-		0.0, 0.5, 0.0,
+	// Test Rectangle
+	vertices := []float32{
+		0.5, 0.5, 0.0, // top right
+		0.5, -0.5, 0.0, // bottom right
+		-0.5, -0.5, 0.0, // bottom left
+		-0.5, 0.5, 0.0, // top left
 	}
 
-	var testFloat float32
+	indices := []uint32{
+		0, 1, 3,
+		1, 2, 3,
+	}
 
-	floatSize := int32(reflect.TypeOf(testFloat).Size())
-
-	var vao uint32
+	var vao, vbo, ebo uint32
 	gl.GenVertexArrays(1, &vao)
+	gl.GenBuffers(1, &vbo)
+	gl.GenBuffers(1, &ebo)
+	defer gl.DeleteVertexArrays(1, &vao)
+	defer gl.DeleteBuffers(1, &vbo)
+	defer gl.DeleteBuffers(1, &ebo)
+
 	gl.BindVertexArray(vao)
 
-	var vbo uint32
-	gl.GenBuffers(1, &vbo)
-
 	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
-	gl.BufferData(gl.ARRAY_BUFFER, len(verticies)*int(floatSize), gl.Ptr(verticies), gl.STATIC_DRAW)
+	gl.BufferData(gl.ARRAY_BUFFER, len(vertices)*int(getSize[float32]()), gl.Ptr(vertices), gl.STATIC_DRAW)
 
-	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 3*floatSize, nil)
+	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
+	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*int(getSize[uint32]()), gl.Ptr(indices), gl.STATIC_DRAW)
+
+	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 3*int32(getSize[float32]()), nil)
 	gl.EnableVertexAttribArray(0)
-	// End Test Triangle
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	gl.BindVertexArray(0)
+	// End Test Rectangle
+
+	// Wireframe
+	// gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
 
 	for !window.ShouldClose() {
 		processInput(window)
@@ -79,7 +94,8 @@ func main() {
 		gl.UseProgram(g_shaderProgram)
 
 		gl.BindVertexArray(vao)
-		gl.DrawArrays(gl.TRIANGLES, 0, 3)
+		gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
+		gl.DrawElements(gl.TRIANGLES, int32(len(indices)), gl.UNSIGNED_INT, nil)
 
 		window.SwapBuffers()
 		glfw.PollEvents()
@@ -97,4 +113,9 @@ func framebuffer_size_callback(window *glfw.Window, width, height int) {
 	g_height = height
 
 	gl.Viewport(0, 0, int32(width), int32(height))
+}
+
+func getSize[T any]() uintptr {
+	var v T
+	return unsafe.Sizeof(v)
 }
