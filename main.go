@@ -1,6 +1,7 @@
 package main
 
 import (
+	"3d-engine/shaders"
 	"log"
 	"unsafe"
 
@@ -9,9 +10,8 @@ import (
 )
 
 var (
-	g_width         = 800
-	g_height        = 600
-	g_shaderProgram uint32
+	g_width  = 800
+	g_height = 600
 )
 
 func main() {
@@ -40,44 +40,54 @@ func main() {
 
 	window.SetFramebufferSizeCallback(framebuffer_size_callback)
 
-	g_shaderProgram, err = createShaderProgram()
+	shader, err := shaders.CreateShaderProgram()
 	if err != nil {
 		log.Fatalln("Could not create a shader program:", err)
 	}
-	defer gl.DeleteProgram(g_shaderProgram)
+	defer shader.Delete()
 
 	// Test Rectangle
 	vertices := []float32{
-		0.5, 0.5, 0.0, // top right
-		0.5, -0.5, 0.0, // bottom right
-		-0.5, -0.5, 0.0, // bottom left
-		-0.5, 0.5, 0.0, // top left
+		// position // color
+		0.5, -0.5, 0.0, 1.0, 0.0, 0.0, // top right
+		-0.5, -0.5, 0.0, 0.0, 1.0, 0.0, // bottom right
+		0.0, 0.5, 0.0, 0.0, 0.0, 1.0, // bottom left
 	}
 
-	indices := []uint32{
-		0, 1, 3,
-		1, 2, 3,
-	}
+	// indices := []uint32{
+	// 	0, 1, 3,
+	// 	1, 2, 3,
+	// }
 
-	var vao, vbo, ebo uint32
+	var vao, vbo uint32
+	// var ebo uint32
+
 	gl.GenVertexArrays(1, &vao)
 	gl.GenBuffers(1, &vbo)
-	gl.GenBuffers(1, &ebo)
+	// gl.GenBuffers(1, &ebo)
 	defer gl.DeleteVertexArrays(1, &vao)
 	defer gl.DeleteBuffers(1, &vbo)
-	defer gl.DeleteBuffers(1, &ebo)
+	// defer gl.DeleteBuffers(1, &ebo)
 
 	gl.BindVertexArray(vao)
 
+	// vbo
 	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
-	gl.BufferData(gl.ARRAY_BUFFER, len(vertices)*int(getSize[float32]()), gl.Ptr(vertices), gl.STATIC_DRAW)
+	gl.BufferData(gl.ARRAY_BUFFER, len(vertices)*int(sizeof[float32]()), gl.Ptr(vertices), gl.STATIC_DRAW)
 
-	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
-	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*int(getSize[uint32]()), gl.Ptr(indices), gl.STATIC_DRAW)
+	// ebo
+	// gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
+	// gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*int(sizeof[uint32]()), gl.Ptr(indices), gl.STATIC_DRAW)
 
-	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 3*int32(getSize[float32]()), nil)
+	// position
+	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 6*int32(sizeof[float32]()), nil)
 	gl.EnableVertexAttribArray(0)
 
+	// color
+	gl.VertexAttribPointer(1, 3, gl.FLOAT, false, 6*int32(sizeof[float32]()), gl.Ptr(3*sizeof[float32]()))
+	gl.EnableVertexAttribArray(1)
+
+	// unbind
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 	gl.BindVertexArray(0)
 	// End Test Rectangle
@@ -91,11 +101,12 @@ func main() {
 		gl.ClearColor(0.2, 0.3, 0.3, 1.0)
 		gl.Clear(gl.COLOR_BUFFER_BIT)
 
-		gl.UseProgram(g_shaderProgram)
+		shader.Use()
 
 		gl.BindVertexArray(vao)
-		gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
-		gl.DrawElements(gl.TRIANGLES, int32(len(indices)), gl.UNSIGNED_INT, nil)
+		// gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
+		// gl.DrawElements(gl.TRIANGLES, int32(len(indices)), gl.UNSIGNED_INT, nil)
+		gl.DrawArrays(gl.TRIANGLES, 0, 3)
 
 		window.SwapBuffers()
 		glfw.PollEvents()
@@ -115,7 +126,7 @@ func framebuffer_size_callback(window *glfw.Window, width, height int) {
 	gl.Viewport(0, 0, int32(width), int32(height))
 }
 
-func getSize[T any]() uintptr {
+func sizeof[T any]() uintptr {
 	var v T
 	return unsafe.Sizeof(v)
 }

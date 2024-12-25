@@ -1,16 +1,46 @@
-package main
+package shaders
 
 import (
+	"embed"
 	"fmt"
-	"io"
 	"log"
-	"os"
 	"strings"
 
 	"github.com/go-gl/gl/v4.6-core/gl"
 )
 
-func createShaderProgram() (uint32, error) {
+//go:embed *.glsl
+var shaderDir embed.FS
+
+type Shader struct {
+	ProgramId uint32
+}
+
+func (s Shader) Use() {
+	gl.UseProgram(s.ProgramId)
+}
+
+func (s Shader) SetBool(name string, val bool) {
+	var valInt int32
+	if val {
+		valInt = 1
+	}
+	gl.Uniform1i(gl.GetUniformLocation(s.ProgramId, gl.Str(name)), valInt)
+}
+
+func (s Shader) SetInt(name string, val int32) {
+	gl.Uniform1i(gl.GetUniformLocation(s.ProgramId, gl.Str(name)), val)
+}
+
+func (s Shader) SetFloat(name string, val float32) {
+	gl.Uniform1f(gl.GetUniformLocation(s.ProgramId, gl.Str(name)), val)
+}
+
+func (s Shader) Delete() {
+	gl.DeleteProgram(s.ProgramId)
+}
+
+func CreateShaderProgram() (*Shader, error) {
 	vertexShader := compileShader("vertex", gl.VERTEX_SHADER)
 	fragmentShader := compileShader("fragment", gl.FRAGMENT_SHADER)
 
@@ -27,10 +57,10 @@ func createShaderProgram() (uint32, error) {
 	if success == gl.FALSE {
 		infoLog := make([]byte, 512)
 		gl.GetProgramInfoLog(shaderProgram, 512, nil, &infoLog[0])
-		return 0, fmt.Errorf("ERROR::SHADER::PROGRAM::COMPILATION_FAILED\n%s\n", string(infoLog))
+		return nil, fmt.Errorf("ERROR::SHADER::PROGRAM::COMPILATION_FAILED\n%s\n", string(infoLog))
 	}
 
-	return shaderProgram, nil
+	return &Shader{ProgramId: shaderProgram}, nil
 }
 
 func compileShader(name string, shaderType uint32) uint32 {
@@ -58,13 +88,7 @@ func compileShader(name string, shaderType uint32) uint32 {
 }
 
 func getShader(name string) (string, error) {
-	file, err := os.Open("shaders/" + name + ".glsl")
-	if err != nil {
-		return "", fmt.Errorf("failed to open file: %w", err)
-	}
-	defer file.Close()
-
-	content, err := io.ReadAll(file)
+	content, err := shaderDir.ReadFile(name + ".glsl")
 	if err != nil {
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
