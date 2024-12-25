@@ -25,15 +25,21 @@ func (s Shader) SetBool(name string, val bool) {
 	if val {
 		valInt = 1
 	}
-	gl.Uniform1i(gl.GetUniformLocation(s.ProgramId, gl.Str(name)), valInt)
+	strs, freeFunc := gl.Strs(name)
+	gl.Uniform1i(gl.GetUniformLocation(s.ProgramId, *strs), valInt)
+	freeFunc()
 }
 
 func (s Shader) SetInt(name string, val int32) {
-	gl.Uniform1i(gl.GetUniformLocation(s.ProgramId, gl.Str(name)), val)
+	strs, freeFunc := gl.Strs(name)
+	gl.Uniform1i(gl.GetUniformLocation(s.ProgramId, *strs), val)
+	freeFunc()
 }
 
 func (s Shader) SetFloat(name string, val float32) {
-	gl.Uniform1f(gl.GetUniformLocation(s.ProgramId, gl.Str(name)), val)
+	strs, freeFunc := gl.Strs(name)
+	gl.Uniform1f(gl.GetUniformLocation(s.ProgramId, *strs), val)
+	freeFunc()
 }
 
 func (s Shader) Delete() {
