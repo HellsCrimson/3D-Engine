@@ -255,7 +255,7 @@ func fpsCounter(window *glfw.Window) {
 
 	if delta >= 1.0 {
 		fps := float64(nbFrames) / float64(delta)
-		window.SetTitle("FPS: " + strconv.FormatFloat(fps, 'f', -1, 64))
+		window.SetTitle("3D-Engine - FPS: " + strconv.FormatFloat(fps, 'f', 2, 64))
 		nbFrames = 0
 		lastFrameCounter = float32(glfw.GetTime())
 	}
