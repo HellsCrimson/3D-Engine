@@ -16,11 +16,11 @@ type Shader struct {
 	ProgramId uint32
 }
 
-func (s Shader) Use() {
+func (s *Shader) Use() {
 	gl.UseProgram(s.ProgramId)
 }
 
-func (s Shader) Delete() {
+func (s *Shader) Delete() {
 	gl.DeleteProgram(s.ProgramId)
 }
 
