@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-gl/gl/v4.6-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
+	"github.com/go-gl/mathgl/mgl32"
 )
 
 var (
@@ -16,10 +17,11 @@ var (
 	g_height = 600
 )
 
-func main() {
+func init() {
 	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
+}
 
+func main() {
 	if err := glfw.Init(); err != nil {
 		log.Fatalln("Could not init glfw:", err)
 	}
@@ -43,6 +45,8 @@ func main() {
 
 	gl.Viewport(0, 0, int32(g_width), int32(g_height))
 
+	gl.Enable(gl.DEPTH_TEST)
+
 	window.SetFramebufferSizeCallback(framebuffer_size_callback)
 
 	shader, err := shaders.CreateShaderProgram()
@@ -53,17 +57,67 @@ func main() {
 
 	// Test Rectangle
 	vertices := []float32{
-		// position // color // texture coords
-		0.5, 0.5, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, // top right
-		0.5, -0.5, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, // bottom right
-		-0.5, -0.5, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, // bottom left
-		-0.5, 0.5, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, // top left
+		// position // texture coords
+		-0.5, -0.5, -0.5, 0.0, 0.0,
+		0.5, -0.5, -0.5, 1.0, 0.0,
+		0.5, 0.5, -0.5, 1.0, 1.0,
+		0.5, 0.5, -0.5, 1.0, 1.0,
+		-0.5, 0.5, -0.5, 0.0, 1.0,
+		-0.5, -0.5, -0.5, 0.0, 0.0,
+
+		-0.5, -0.5, 0.5, 0.0, 0.0,
+		0.5, -0.5, 0.5, 1.0, 0.0,
+		0.5, 0.5, 0.5, 1.0, 1.0,
+		0.5, 0.5, 0.5, 1.0, 1.0,
+		-0.5, 0.5, 0.5, 0.0, 1.0,
+		-0.5, -0.5, 0.5, 0.0, 0.0,
+
+		-0.5, 0.5, 0.5, 1.0, 0.0,
+		-0.5, 0.5, -0.5, 1.0, 1.0,
+		-0.5, -0.5, -0.5, 0.0, 1.0,
+		-0.5, -0.5, -0.5, 0.0, 1.0,
+		-0.5, -0.5, 0.5, 0.0, 0.0,
+		-0.5, 0.5, 0.5, 1.0, 0.0,
+
+		0.5, 0.5, 0.5, 1.0, 0.0,
+		0.5, 0.5, -0.5, 1.0, 1.0,
+		0.5, -0.5, -0.5, 0.0, 1.0,
+		0.5, -0.5, -0.5, 0.0, 1.0,
+		0.5, -0.5, 0.5, 0.0, 0.0,
+		0.5, 0.5, 0.5, 1.0, 0.0,
+
+		-0.5, -0.5, -0.5, 0.0, 1.0,
+		0.5, -0.5, -0.5, 1.0, 1.0,
+		0.5, -0.5, 0.5, 1.0, 0.0,
+		0.5, -0.5, 0.5, 1.0, 0.0,
+		-0.5, -0.5, 0.5, 0.0, 0.0,
+		-0.5, -0.5, -0.5, 0.0, 1.0,
+
+		-0.5, 0.5, -0.5, 0.0, 1.0,
+		0.5, 0.5, -0.5, 1.0, 1.0,
+		0.5, 0.5, 0.5, 1.0, 0.0,
+		0.5, 0.5, 0.5, 1.0, 0.0,
+		-0.5, 0.5, 0.5, 0.0, 0.0,
+		-0.5, 0.5, -0.5, 0.0, 1.0,
 	}
 
-	indices := []uint32{
-		0, 1, 3,
-		1, 2, 3,
+	cubePositions := []mgl32.Vec3{
+		{0.0, 0.0, 0.0},
+		{2.0, 5.0, -15.0},
+		{-1.5, -2.2, -2.5},
+		{-3.8, -2.0, -12.3},
+		{2.4, -0.4, -3.5},
+		{-1.7, 3.0, -7.5},
+		{1.3, -2.0, -2.5},
+		{1.5, 2.0, -2.5},
+		{1.5, 0.2, -1.5},
+		{-1.3, 1.0, -1.5},
 	}
+
+	// indices := []uint32{
+	// 	0, 1, 3,
+	// 	1, 2, 3,
+	// }
 
 	var vao, vbo, ebo uint32
 
@@ -81,20 +135,16 @@ func main() {
 	gl.BufferData(gl.ARRAY_BUFFER, len(vertices)*int(sizeof[float32]()), gl.Ptr(vertices), gl.STATIC_DRAW)
 
 	// ebo
-	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
-	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*int(sizeof[uint32]()), gl.Ptr(indices), gl.STATIC_DRAW)
+	// gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
+	// gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*int(sizeof[uint32]()), gl.Ptr(indices), gl.STATIC_DRAW)
 
 	// position
-	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 8*int32(sizeof[float32]()), nil)
+	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 5*int32(sizeof[float32]()), nil)
 	gl.EnableVertexAttribArray(0)
 
-	// color
-	gl.VertexAttribPointer(1, 3, gl.FLOAT, false, 8*int32(sizeof[float32]()), gl.Ptr(3*sizeof[float32]()))
-	gl.EnableVertexAttribArray(1)
-
 	// texture
-	gl.VertexAttribPointer(2, 2, gl.FLOAT, false, 8*int32(sizeof[float32]()), gl.Ptr(6*sizeof[float32]()))
-	gl.EnableVertexAttribArray(2)
+	gl.VertexAttribPointer(1, 2, gl.FLOAT, false, 5*int32(sizeof[float32]()), gl.Ptr(3*sizeof[float32]()))
+	gl.EnableVertexAttribArray(1)
 
 	// unbind
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
@@ -122,20 +172,37 @@ func main() {
 	// Wireframe
 	// gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
 
+	shader.Use()
+	fov := float32(45.0)
+	projection := mgl32.Perspective(mgl32.DegToRad(fov), float32(g_width)/float32(g_height), 0.1, 100.0)
+	shader.SetMat4("projection", projection)
+
+	view := mgl32.Ident4()
+	view = view.Mul4(mgl32.Translate3D(0.0, 0.0, -3.0))
+	shader.SetMat4("view", view)
+
 	for !window.ShouldClose() {
 		processInput(window)
 
 		gl.ClearColor(0.2, 0.3, 0.3, 1.0)
-		gl.Clear(gl.COLOR_BUFFER_BIT)
+		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
+		gl.ActiveTexture(gl.TEXTURE0)
 		gl.BindTexture(gl.TEXTURE_2D, textureId)
 
 		shader.Use()
 
 		gl.BindVertexArray(vao)
-		gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
-		gl.DrawElements(gl.TRIANGLES, int32(len(indices)), gl.UNSIGNED_INT, nil)
-		// gl.DrawArrays(gl.TRIANGLES, 0, 3)
+		// gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
+		// gl.DrawElements(gl.TRIANGLES, int32(len(indices)), gl.UNSIGNED_INT, nil)
+		for i := 0; i < len(cubePositions); i++ {
+			model := mgl32.Ident4()
+			model = model.Mul4(mgl32.Translate3D(cubePositions[i].X(), cubePositions[i].Y(), cubePositions[i].Z()))
+			angle := 20.0 * i
+			model = model.Mul4(mgl32.HomogRotate3D(mgl32.DegToRad(float32(angle)), mgl32.Vec3{1.0, 0.3, 0.5}))
+			shader.SetMat4("model", model)
+			gl.DrawArrays(gl.TRIANGLES, 0, 36)
+		}
 
 		window.SwapBuffers()
 		glfw.PollEvents()

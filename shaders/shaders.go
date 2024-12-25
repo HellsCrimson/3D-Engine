@@ -20,28 +20,6 @@ func (s Shader) Use() {
 	gl.UseProgram(s.ProgramId)
 }
 
-func (s Shader) SetBool(name string, val bool) {
-	var valInt int32
-	if val {
-		valInt = 1
-	}
-	strs, freeFunc := gl.Strs(name)
-	gl.Uniform1i(gl.GetUniformLocation(s.ProgramId, *strs), valInt)
-	freeFunc()
-}
-
-func (s Shader) SetInt(name string, val int32) {
-	strs, freeFunc := gl.Strs(name)
-	gl.Uniform1i(gl.GetUniformLocation(s.ProgramId, *strs), val)
-	freeFunc()
-}
-
-func (s Shader) SetFloat(name string, val float32) {
-	strs, freeFunc := gl.Strs(name)
-	gl.Uniform1f(gl.GetUniformLocation(s.ProgramId, *strs), val)
-	freeFunc()
-}
-
 func (s Shader) Delete() {
 	gl.DeleteProgram(s.ProgramId)
 }
@@ -75,7 +53,7 @@ func compileShader(name string, shaderType uint32) uint32 {
 		log.Fatalln(err)
 	}
 
-	shaderSource, freeShader := gl.Strs(shaderSourceStr)
+	shaderSource, freeShader := gl.Strs(shaderSourceStr + "\x00")
 	shader := gl.CreateShader(shaderType)
 	gl.ShaderSource(shader, 1, shaderSource, nil)
 	freeShader()
