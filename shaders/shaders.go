@@ -9,7 +9,7 @@ import (
 	"github.com/go-gl/gl/v4.6-core/gl"
 )
 
-//go:embed *.glsl
+//go:embed *.vert *.frag
 var shaderDir embed.FS
 
 type Shader struct {
@@ -24,9 +24,9 @@ func (s *Shader) Delete() {
 	gl.DeleteProgram(s.ProgramId)
 }
 
-func CreateShaderProgram() (*Shader, error) {
-	vertexShader := compileShader("vertex", gl.VERTEX_SHADER)
-	fragmentShader := compileShader("fragment", gl.FRAGMENT_SHADER)
+func CreateShaderProgram(nameVertex, nameFragment string) (*Shader, error) {
+	vertexShader := compileShader(nameVertex, gl.VERTEX_SHADER)
+	fragmentShader := compileShader(nameFragment, gl.FRAGMENT_SHADER)
 
 	defer gl.DeleteShader(vertexShader)
 	defer gl.DeleteShader(fragmentShader)
@@ -72,7 +72,7 @@ func compileShader(name string, shaderType uint32) uint32 {
 }
 
 func getShader(name string) (string, error) {
-	content, err := shaderDir.ReadFile(name + ".glsl")
+	content, err := shaderDir.ReadFile(name)
 	if err != nil {
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}

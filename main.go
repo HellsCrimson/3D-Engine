@@ -28,6 +28,10 @@ var (
 	nbFrames                 = 0
 )
 
+var (
+	lightPos = mgl32.Vec3{1.2, 1.0, 2.0}
+)
+
 func init() {
 	runtime.LockOSThread()
 }
@@ -62,81 +66,50 @@ func main() {
 
 	window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
 
-	shader, err := shaders.CreateShaderProgram()
+	lightingShader, err := shaders.CreateShaderProgram("lighting.vert", "lighting.frag")
 	if err != nil {
-		log.Fatalln("Could not create a shader program:", err)
+		log.Fatalln("Could not create cube shader:", err)
 	}
-	defer shader.Delete()
+	defer lightingShader.Delete()
+
+	lightSourceShader, err := shaders.CreateShaderProgram("lighting.vert", "lightSource.frag")
+	if err != nil {
+		log.Fatalln("Could not create light shader:", err)
+	}
+	defer lightSourceShader.Delete()
 
 	vertices := loader.LoadModel()
 
-	cubePositions := []mgl32.Vec3{
-		{0.0, 0.0, 0.0},
-		{2.0, 5.0, -15.0},
-		{-1.5, -2.2, -2.5},
-		{-3.8, -2.0, -12.3},
-		{2.4, -0.4, -3.5},
-		{-1.7, 3.0, -7.5},
-		{1.3, -2.0, -2.5},
-		{1.5, 2.0, -2.5},
-		{1.5, 0.2, -1.5},
-		{-1.3, 1.0, -1.5},
-	}
-
-	// indices := []uint32{
-	// 	0, 1, 3,
-	// 	1, 2, 3,
-	// }
-
-	var vao, vbo, ebo uint32
-
-	gl.GenVertexArrays(1, &vao)
+	var vbo uint32
 	gl.GenBuffers(1, &vbo)
-	gl.GenBuffers(1, &ebo)
-	defer gl.DeleteVertexArrays(1, &vao)
 	defer gl.DeleteBuffers(1, &vbo)
-	defer gl.DeleteBuffers(1, &ebo)
 
-	gl.BindVertexArray(vao)
-
-	// vbo
 	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
 	gl.BufferData(gl.ARRAY_BUFFER, len(vertices)*int(sizeof[float32]()), gl.Ptr(vertices), gl.STATIC_DRAW)
 
-	// ebo
-	// gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
-	// gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*int(sizeof[uint32]()), gl.Ptr(indices), gl.STATIC_DRAW)
+	var cubeVao, lightVao uint32
+	gl.GenVertexArrays(1, &cubeVao)
+	gl.GenVertexArrays(1, &lightVao)
+	defer gl.DeleteVertexArrays(1, &cubeVao)
+	defer gl.DeleteVertexArrays(1, &lightVao)
 
-	// position
-	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 5*int32(sizeof[float32]()), nil)
+	// Cube
+	gl.BindVertexArray(cubeVao)
+	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 8*int32(sizeof[float32]()), nil)
 	gl.EnableVertexAttribArray(0)
 
-	// texture
-	gl.VertexAttribPointer(1, 2, gl.FLOAT, false, 5*int32(sizeof[float32]()), gl.Ptr(3*sizeof[float32]()))
+	gl.VertexAttribPointer(1, 3, gl.FLOAT, false, 8*int32(sizeof[float32]()), gl.Ptr(3*sizeof[float32]()))
 	gl.EnableVertexAttribArray(1)
 
-	// unbind
-	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
-	gl.BindVertexArray(0)
-	// End Test Rectangle
+	gl.VertexAttribPointer(2, 2, gl.FLOAT, false, 8*int32(sizeof[float32]()), gl.Ptr(6*sizeof[float32]()))
+	gl.EnableVertexAttribArray(2)
 
-	// Texture
-	var textureId uint32
-	gl.GenTextures(1, &textureId)
-	gl.BindTexture(gl.TEXTURE_2D, textureId)
+	// Light
+	gl.BindVertexArray(lightVao)
+	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 8*int32(sizeof[float32]()), nil)
+	gl.EnableVertexAttribArray(0)
 
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-
-	texture := textures.Load("missing")
-
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, texture.Width, texture.Height, 0, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(texture.Data))
-	gl.GenerateMipmap(gl.TEXTURE_2D)
-
-	gl.BindTexture(gl.TEXTURE_2D, 0)
-	// End Texture
+	texture := textures.Load("container2.jpg")
 
 	cam := camera.NewCamera()
 
@@ -155,31 +128,43 @@ func main() {
 
 		processInput(window, cam)
 
-		gl.ClearColor(0.2, 0.3, 0.3, 1.0)
+		gl.ClearColor(0.0, 0.0, 0.0, 1.0)
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-		gl.ActiveTexture(gl.TEXTURE0)
-		gl.BindTexture(gl.TEXTURE_2D, textureId)
-
-		shader.Use()
+		// Lighting
+		lightingShader.Use()
+		lightingShader.SetVec3Val("light.position", lightPos)
+		lightingShader.SetVec3("light.ambient", 0.2, 0.2, 0.2)
+		lightingShader.SetVec3("light.diffuse", 0.5, 0.5, 0.5)
+		lightingShader.SetVec3("light.specular", 1.0, 1.0, 1.0)
+		lightingShader.SetVec3Val("viewPos", cam.CameraPos)
 
 		projection := cam.ComputeProjection(g_width, g_height)
-		shader.SetMat4("projection", projection)
-
+		lightingShader.SetMat4("projection", projection)
 		view := cam.ComputeView()
-		shader.SetMat4("view", view)
+		lightingShader.SetMat4("view", view)
 
-		gl.BindVertexArray(vao)
-		// gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
-		// gl.DrawElements(gl.TRIANGLES, int32(len(indices)), gl.UNSIGNED_INT, nil)
-		for i := 0; i < len(cubePositions); i++ {
-			model := mgl32.Ident4()
-			model = model.Mul4(mgl32.Translate3D(cubePositions[i].X(), cubePositions[i].Y(), cubePositions[i].Z()))
-			var angle float32 = float32(20.0 * i)
-			model = model.Mul4(mgl32.HomogRotate3D(mgl32.DegToRad(angle), mgl32.Vec3{1.0, 0.3, 0.5}.Normalize()))
-			shader.SetMat4("model", model)
-			gl.DrawArrays(gl.TRIANGLES, 0, 36)
-		}
+		// Cube
+		model := mgl32.Ident4()
+		lightingShader.SetMat4("model", model)
+		lightingShader.SetInt("material.diffuse", 0)
+		lightingShader.SetVec3("material.specular", 0.5, 0.5, 0.5)
+		lightingShader.SetFloat("material.shininess", 32.0)
+		gl.ActiveTexture(gl.TEXTURE0)
+		gl.BindTexture(gl.TEXTURE_2D, texture)
+		gl.BindVertexArray(cubeVao)
+		gl.DrawArrays(gl.TRIANGLES, 0, 36)
+
+		// Light source
+		lightSourceShader.Use()
+		lightSourceShader.SetMat4("projection", projection)
+		lightSourceShader.SetMat4("view", view)
+		light := mgl32.Ident4()
+		light = light.Mul4(mgl32.Translate3D(lightPos.X(), lightPos.Y(), lightPos.Z()))
+		light = light.Mul4(mgl32.Scale3D(0.2, 0.2, 0.2))
+		lightSourceShader.SetMat4("model", light)
+		gl.BindVertexArray(lightVao)
+		gl.DrawArrays(gl.TRIANGLES, 0, 36)
 
 		window.SwapBuffers()
 		glfw.PollEvents()
