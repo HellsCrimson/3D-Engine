@@ -2,6 +2,7 @@ package main
 
 import (
 	"3d-engine/camera"
+	"3d-engine/loader"
 	"3d-engine/shaders"
 	"3d-engine/textures"
 	"log"
@@ -67,51 +68,7 @@ func main() {
 	}
 	defer shader.Delete()
 
-	// Test Rectangle
-	vertices := []float32{
-		// position // texture coords
-		-0.5, -0.5, -0.5, 0.0, 0.0,
-		0.5, -0.5, -0.5, 1.0, 0.0,
-		0.5, 0.5, -0.5, 1.0, 1.0,
-		0.5, 0.5, -0.5, 1.0, 1.0,
-		-0.5, 0.5, -0.5, 0.0, 1.0,
-		-0.5, -0.5, -0.5, 0.0, 0.0,
-
-		-0.5, -0.5, 0.5, 0.0, 0.0,
-		0.5, -0.5, 0.5, 1.0, 0.0,
-		0.5, 0.5, 0.5, 1.0, 1.0,
-		0.5, 0.5, 0.5, 1.0, 1.0,
-		-0.5, 0.5, 0.5, 0.0, 1.0,
-		-0.5, -0.5, 0.5, 0.0, 0.0,
-
-		-0.5, 0.5, 0.5, 1.0, 0.0,
-		-0.5, 0.5, -0.5, 1.0, 1.0,
-		-0.5, -0.5, -0.5, 0.0, 1.0,
-		-0.5, -0.5, -0.5, 0.0, 1.0,
-		-0.5, -0.5, 0.5, 0.0, 0.0,
-		-0.5, 0.5, 0.5, 1.0, 0.0,
-
-		0.5, 0.5, 0.5, 1.0, 0.0,
-		0.5, 0.5, -0.5, 1.0, 1.0,
-		0.5, -0.5, -0.5, 0.0, 1.0,
-		0.5, -0.5, -0.5, 0.0, 1.0,
-		0.5, -0.5, 0.5, 0.0, 0.0,
-		0.5, 0.5, 0.5, 1.0, 0.0,
-
-		-0.5, -0.5, -0.5, 0.0, 1.0,
-		0.5, -0.5, -0.5, 1.0, 1.0,
-		0.5, -0.5, 0.5, 1.0, 0.0,
-		0.5, -0.5, 0.5, 1.0, 0.0,
-		-0.5, -0.5, 0.5, 0.0, 0.0,
-		-0.5, -0.5, -0.5, 0.0, 1.0,
-
-		-0.5, 0.5, -0.5, 0.0, 1.0,
-		0.5, 0.5, -0.5, 1.0, 1.0,
-		0.5, 0.5, 0.5, 1.0, 0.0,
-		0.5, 0.5, 0.5, 1.0, 0.0,
-		-0.5, 0.5, 0.5, 0.0, 0.0,
-		-0.5, 0.5, -0.5, 0.0, 1.0,
-	}
+	vertices := loader.LoadModel()
 
 	cubePositions := []mgl32.Vec3{
 		{0.0, 0.0, 0.0},
@@ -173,7 +130,7 @@ func main() {
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 
-	texture := textures.Load("wall")
+	texture := textures.Load("missing")
 
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, texture.Width, texture.Height, 0, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(texture.Data))
 	gl.GenerateMipmap(gl.TEXTURE_2D)
