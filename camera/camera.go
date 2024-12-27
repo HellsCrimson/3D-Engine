@@ -15,6 +15,7 @@ type Camera struct {
 	CameraPos   mgl32.Vec3
 	CameraFront mgl32.Vec3
 	CameraUp    mgl32.Vec3
+	CameraRight mgl32.Vec3
 	CameraSpeed float32
 	CameraFov   float32
 	Yaw         float32
@@ -30,6 +31,7 @@ func NewCamera() *Camera {
 		CameraPos:   mgl32.Vec3{0.0, 0.0, 3.0},
 		CameraFront: mgl32.Vec3{0.0, 0.0, -1.0},
 		CameraUp:    mgl32.Vec3{0.0, 1.0, 0.0},
+		CameraRight: mgl32.Vec3{1.0, 0.0, 0.0},
 		CameraSpeed: 3.0,
 		CameraFov:   45.0,
 		Yaw:         -90.0,
@@ -104,8 +106,8 @@ func (c *Camera) MouseCallback(window *glfw.Window, xpos, ypos float64) {
 
 	c.CameraFront = direction.Normalize()
 
-	cameraRight := c.CameraFront.Cross(worldUp).Normalize()
-	c.CameraUp = cameraRight.Cross(c.CameraFront).Normalize()
+	c.CameraRight = c.CameraFront.Cross(worldUp).Normalize()
+	c.CameraUp = c.CameraRight.Cross(c.CameraFront).Normalize()
 }
 
 func (c *Camera) ScrollCallback(window *glfw.Window, xOffset, yOffset float64) {
