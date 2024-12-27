@@ -1,16 +1,15 @@
 package textures
 
 import (
-	"embed"
 	"fmt"
 	"image"
 	"image/jpeg"
+	"image/png"
+	"os"
+	"path/filepath"
 
 	"github.com/go-gl/gl/v4.6-core/gl"
 )
-
-//go:embed *.jpg
-var textureDir embed.FS
 
 type Texture struct {
 	Width  int32
@@ -39,25 +38,45 @@ func Load(name string) uint32 {
 }
 
 func getImage(name string) *Texture {
-	file, err := textureDir.Open(name)
+	file, err := os.Open(name)
 	if err != nil {
 		fmt.Println("Error opening file:", err)
 		return nil
 	}
 	defer file.Close()
 
-	img, err := jpeg.Decode(file)
-	if err != nil {
-		fmt.Println("Error decoding JPG:", err)
+	extension := filepath.Ext(name)
+	if extension == ".jpg" || extension == ".jpeg" {
+		img, err := jpeg.Decode(file)
+		if err != nil {
+			fmt.Println("Error decoding JPG:", err)
+			return nil
+		}
+
+		rgba := imageToRGBA(img)
+
+		return &Texture{
+			Width:  int32(rgba.Rect.Dx()),
+			Height: int32(rgba.Rect.Dy()),
+			Data:   rgba.Pix,
+		}
+	} else if extension == ".png" {
+		img, err := png.Decode(file)
+		if err != nil {
+			fmt.Println("Error decoding PNG:", err)
+			return nil
+		}
+
+		rgba := imageToRGBA(img)
+
+		return &Texture{
+			Width:  int32(rgba.Rect.Dx()),
+			Height: int32(rgba.Rect.Dy()),
+			Data:   rgba.Pix,
+		}
+	} else {
+		fmt.Printf("Extension %s not supported\n", extension)
 		return nil
-	}
-
-	rgba := imageToRGBA(img)
-
-	return &Texture{
-		Width:  int32(rgba.Rect.Dx()),
-		Height: int32(rgba.Rect.Dy()),
-		Data:   rgba.Pix,
 	}
 }
 

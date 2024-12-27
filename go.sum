@@ -1,3 +1,7 @@
+github.com/bloeys/assimp-go v0.5.0 h1:pBPRPw7qlhp4DWU+Yh8g1ytxzYplQ52Rs7Hu3bI6pDo=
+github.com/bloeys/assimp-go v0.5.0/go.mod h1:my3yRxT7CfOztmvi+0svmwbaqw0KFrxaHxncoyaEIP0=
+github.com/bloeys/gglm v0.3.1 h1:Sy9upW7SBsBfDXrSmEhid3aQ+7J7itej+upwcxOnPMQ=
+github.com/bloeys/gglm v0.3.1/go.mod h1:qwJQ0WzV191wAMwlGicbfbChbKoSedMk7gFFX6GnyOk=
 github.com/go-gl/gl v0.0.0-20231021071112-07e5d0ea2e71 h1:5BVwOaUSBTlVZowGO6VZGw2H/zl9nrd3eCZfYV+NfQA=
 github.com/go-gl/gl v0.0.0-20231021071112-07e5d0ea2e71/go.mod h1:9YTyiznxEY1fVinfM7RvRcjRHbw2xLBJ3AAGIT0I4Nw=
 github.com/go-gl/glfw/v3.3/glfw v0.0.0-20240506104042-037f3cc74f2a h1:vxnBhFDDT+xzxf1jTJKMKZw3H0swfWk9RpWbBbDK5+0=
