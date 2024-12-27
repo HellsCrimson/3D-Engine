@@ -7,6 +7,10 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
+var (
+	worldUp = mgl32.Vec3{0.0, 1.0, 0.0}
+)
+
 type Camera struct {
 	CameraPos   mgl32.Vec3
 	CameraFront mgl32.Vec3
@@ -17,7 +21,8 @@ type Camera struct {
 	Pitch       float32
 	LastX       float32
 	LastY       float32
-	firstMouse  bool
+
+	firstMouse bool
 }
 
 func NewCamera() *Camera {
@@ -25,7 +30,7 @@ func NewCamera() *Camera {
 		CameraPos:   mgl32.Vec3{0.0, 0.0, 3.0},
 		CameraFront: mgl32.Vec3{0.0, 0.0, -1.0},
 		CameraUp:    mgl32.Vec3{0.0, 1.0, 0.0},
-		CameraSpeed: 2.5,
+		CameraSpeed: 3.0,
 		CameraFov:   45.0,
 		Yaw:         -90.0,
 		Pitch:       0.0,
@@ -36,19 +41,32 @@ func NewCamera() *Camera {
 }
 
 func (c *Camera) ProcessMovement(window *glfw.Window, deltaTime float32) {
-	curCameraSpeed := c.CameraSpeed * deltaTime
+	var cameraSpeed float32
+	if window.GetKey(glfw.KeyLeftShift) == glfw.Press {
+		cameraSpeed = c.CameraSpeed * 2.0
+	} else {
+		cameraSpeed = c.CameraSpeed
+	}
+
+	curCameraSpeed := cameraSpeed * deltaTime
 
 	if window.GetKey(glfw.KeyW) == glfw.Press {
-		c.CameraPos = c.CameraPos.Add(c.CameraFront.Mul(curCameraSpeed).Normalize())
+		c.CameraPos = c.CameraPos.Add(c.CameraFront.Mul(curCameraSpeed))
 	}
 	if window.GetKey(glfw.KeyS) == glfw.Press {
-		c.CameraPos = c.CameraPos.Sub(c.CameraFront.Mul(curCameraSpeed).Normalize())
+		c.CameraPos = c.CameraPos.Sub(c.CameraFront.Mul(curCameraSpeed))
 	}
 	if window.GetKey(glfw.KeyA) == glfw.Press {
-		c.CameraPos = c.CameraPos.Sub(c.CameraFront.Cross(c.CameraUp).Mul(curCameraSpeed).Normalize())
+		c.CameraPos = c.CameraPos.Sub(c.CameraFront.Cross(c.CameraUp).Mul(curCameraSpeed))
 	}
 	if window.GetKey(glfw.KeyD) == glfw.Press {
-		c.CameraPos = c.CameraPos.Add(c.CameraFront.Cross(c.CameraUp).Mul(curCameraSpeed).Normalize())
+		c.CameraPos = c.CameraPos.Add(c.CameraFront.Cross(c.CameraUp).Mul(curCameraSpeed))
+	}
+	if window.GetKey(glfw.KeySpace) == glfw.Press {
+		c.CameraPos = c.CameraPos.Add(c.CameraUp.Mul(curCameraSpeed))
+	}
+	if window.GetKey(glfw.KeyLeftControl) == glfw.Press {
+		c.CameraPos = c.CameraPos.Sub(c.CameraUp.Mul(curCameraSpeed))
 	}
 }
 
@@ -85,6 +103,9 @@ func (c *Camera) MouseCallback(window *glfw.Window, xpos, ypos float64) {
 	}
 
 	c.CameraFront = direction.Normalize()
+
+	cameraRight := c.CameraFront.Cross(worldUp).Normalize()
+	c.CameraUp = cameraRight.Cross(c.CameraFront).Normalize()
 }
 
 func (c *Camera) ScrollCallback(window *glfw.Window, xOffset, yOffset float64) {
@@ -92,8 +113,8 @@ func (c *Camera) ScrollCallback(window *glfw.Window, xOffset, yOffset float64) {
 	if c.CameraFov < 1.0 {
 		c.CameraFov = 1.0
 	}
-	if c.CameraFov > 45.0 {
-		c.CameraFov = 45
+	if c.CameraFov > 89.0 {
+		c.CameraFov = 89
 	}
 }
 

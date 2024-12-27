@@ -80,6 +80,19 @@ func main() {
 
 	vertices := loader.LoadModel()
 
+	cubePositions := []mgl32.Vec3{
+		{0.0, 0.0, 0.0},
+		{2.0, 5.0, -15.0},
+		{-1.5, -2.2, -2.5},
+		{-3.8, -2.0, -12.3},
+		{2.4, -0.4, -3.5},
+		{-1.7, 3.0, -7.5},
+		{1.3, -2.0, -2.5},
+		{1.5, 2.0, -2.5},
+		{1.5, 0.2, -1.5},
+		{-1.3, 1.0, -1.5},
+	}
+
 	var vbo uint32
 	gl.GenBuffers(1, &vbo)
 	defer gl.DeleteBuffers(1, &vbo)
@@ -109,7 +122,9 @@ func main() {
 	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 8*int32(sizeof[float32]()), nil)
 	gl.EnableVertexAttribArray(0)
 
-	texture := textures.Load("container2.jpg")
+	diffuseMap := textures.Load("container2.jpg")
+	specularMap := textures.Load("container2_specular.jpg")
+	emissionMap := textures.Load("black.jpg")
 
 	cam := camera.NewCamera()
 
@@ -133,7 +148,7 @@ func main() {
 
 		// Lighting
 		lightingShader.Use()
-		lightingShader.SetVec3Val("light.position", lightPos)
+		lightingShader.SetVec3("light.direction", -0.2, -1.0, -0.3)
 		lightingShader.SetVec3("light.ambient", 0.2, 0.2, 0.2)
 		lightingShader.SetVec3("light.diffuse", 0.5, 0.5, 0.5)
 		lightingShader.SetVec3("light.specular", 1.0, 1.0, 1.0)
@@ -145,26 +160,38 @@ func main() {
 		lightingShader.SetMat4("view", view)
 
 		// Cube
-		model := mgl32.Ident4()
-		lightingShader.SetMat4("model", model)
-		lightingShader.SetInt("material.diffuse", 0)
-		lightingShader.SetVec3("material.specular", 0.5, 0.5, 0.5)
-		lightingShader.SetFloat("material.shininess", 32.0)
-		gl.ActiveTexture(gl.TEXTURE0)
-		gl.BindTexture(gl.TEXTURE_2D, texture)
-		gl.BindVertexArray(cubeVao)
-		gl.DrawArrays(gl.TRIANGLES, 0, 36)
+		for i, cubePos := range cubePositions {
+			model := mgl32.Ident4()
+
+			model = model.Mul4(mgl32.Translate3D(cubePos.X(), cubePos.Y(), cubePos.Z()))
+			var angle float32 = float32(20.0 * i)
+			model = model.Mul4(mgl32.HomogRotate3D(angle, mgl32.Vec3{1.0, 0.3, 0.5}.Normalize()))
+
+			lightingShader.SetMat4("model", model)
+			lightingShader.SetInt("material.diffuse", 0)
+			lightingShader.SetInt("material.specular", 1)
+			lightingShader.SetInt("material.emission", 2)
+			lightingShader.SetFloat("material.shininess", 32.0)
+			gl.ActiveTexture(gl.TEXTURE0)
+			gl.BindTexture(gl.TEXTURE_2D, diffuseMap)
+			gl.ActiveTexture(gl.TEXTURE1)
+			gl.BindTexture(gl.TEXTURE_2D, specularMap)
+			gl.ActiveTexture(gl.TEXTURE2)
+			gl.BindTexture(gl.TEXTURE_2D, emissionMap)
+			gl.BindVertexArray(cubeVao)
+			gl.DrawArrays(gl.TRIANGLES, 0, 36)
+		}
 
 		// Light source
-		lightSourceShader.Use()
-		lightSourceShader.SetMat4("projection", projection)
-		lightSourceShader.SetMat4("view", view)
-		light := mgl32.Ident4()
-		light = light.Mul4(mgl32.Translate3D(lightPos.X(), lightPos.Y(), lightPos.Z()))
-		light = light.Mul4(mgl32.Scale3D(0.2, 0.2, 0.2))
-		lightSourceShader.SetMat4("model", light)
-		gl.BindVertexArray(lightVao)
-		gl.DrawArrays(gl.TRIANGLES, 0, 36)
+		// lightSourceShader.Use()
+		// lightSourceShader.SetMat4("projection", projection)
+		// lightSourceShader.SetMat4("view", view)
+		// light := mgl32.Ident4()
+		// light = light.Mul4(mgl32.Translate3D(lightPos.X(), lightPos.Y(), lightPos.Z()))
+		// light = light.Mul4(mgl32.Scale3D(0.2, 0.2, 0.2))
+		// lightSourceShader.SetMat4("model", light)
+		// gl.BindVertexArray(lightVao)
+		// gl.DrawArrays(gl.TRIANGLES, 0, 36)
 
 		window.SwapBuffers()
 		glfw.PollEvents()
