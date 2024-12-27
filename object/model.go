@@ -4,7 +4,6 @@ import (
 	"3d-engine/shaders"
 	tex "3d-engine/textures"
 	"3d-engine/utils"
-	"fmt"
 	"log"
 	"path/filepath"
 
@@ -107,7 +106,7 @@ func (m *Model) loadMaterialTextures(material *asig.Material, textureType asig.T
 	for i := 0; i < asig.GetMaterialTextureCount(material, textureType); i++ {
 		aTexture, err := asig.GetMaterialTexture(material, textureType, uint(i))
 		if err != nil {
-			fmt.Println("Error: ", err) // TODO: handle error correctly
+			utils.Logger().Println("Error: ", err) // TODO: handle error correctly
 			return nil
 		}
 		skip := false

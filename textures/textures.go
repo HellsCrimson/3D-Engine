@@ -1,7 +1,7 @@
 package textures
 
 import (
-	"fmt"
+	"3d-engine/utils"
 	"image"
 	"image/jpeg"
 	"image/png"
@@ -43,7 +43,7 @@ func Load(name string) (uint32, error) {
 func getImage(name string) (*Texture, error) {
 	file, err := os.Open(name)
 	if err != nil {
-		return nil, fmt.Errorf("Error opening file: %s\n", err)
+		return nil, utils.Logger().Errorf("Error opening file: %s\n", err)
 	}
 	defer file.Close()
 
@@ -71,15 +71,15 @@ func decodeImage(extension string, file *os.File) (image.Image, error) {
 	if extension == ".jpg" || extension == ".jpeg" {
 		img, err = jpeg.Decode(file)
 		if err != nil {
-			return nil, fmt.Errorf("Error decoding JPG: %s\n", err)
+			return nil, utils.Logger().Errorf("Error decoding JPG: %s\n", err)
 		}
 	} else if extension == ".png" {
 		img, err = png.Decode(file)
 		if err != nil {
-			return nil, fmt.Errorf("Error decoding PNG: %s\n", err)
+			return nil, utils.Logger().Errorf("Error decoding PNG: %s\n", err)
 		}
 	} else {
-		return nil, fmt.Errorf("Extension '%s' not supported\n", extension)
+		return nil, utils.Logger().Errorf("Extension '%s' not supported\n", extension)
 	}
 
 	return img, nil

@@ -5,10 +5,10 @@ import (
 	"3d-engine/object"
 	"3d-engine/shaders"
 	"3d-engine/utils"
-	"log"
 	"math"
 	"runtime"
 	"strconv"
+	"time"
 
 	"github.com/go-gl/gl/v4.6-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
@@ -36,7 +36,7 @@ func main() {
 	utils.ParseArgs()
 
 	if err := glfw.Init(); err != nil {
-		log.Fatalln("Could not init glfw:", err)
+		utils.Logger().Fatalln("Could not init glfw:", err)
 	}
 	defer glfw.Terminate()
 
@@ -46,14 +46,14 @@ func main() {
 
 	window, err := glfw.CreateWindow(g_width, g_height, "3D-Engine", nil, nil)
 	if err != nil {
-		log.Fatalln("Could not create a window:", err)
+		utils.Logger().Fatalln("Could not create a window:", err)
 	}
 	defer window.Destroy()
 
 	window.MakeContextCurrent()
 
 	if err := gl.Init(); err != nil {
-		log.Fatalln("Failed to initialize OpenGL:", err)
+		utils.Logger().Fatalln("Failed to initialize OpenGL:", err)
 	}
 
 	gl.Viewport(0, 0, int32(g_width), int32(g_height))
@@ -66,7 +66,7 @@ func main() {
 
 	lightingShader, err := shaders.CreateShaderProgram("lighting.vert", "lighting.frag")
 	if err != nil {
-		log.Fatalln("Could not create cube shader:", err)
+		utils.Logger().Fatalln("Could not create cube shader:", err)
 	}
 	defer lightingShader.Delete()
 
@@ -84,13 +84,19 @@ func main() {
 	window.SetCursorPosCallback(cam.MouseCallback)
 	window.SetScrollCallback(cam.ScrollCallback)
 
-	// Wireframe
-	// gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
+	const fixedUpdateRate = 50
+	fixedDeltaTime := time.Second / time.Duration(fixedUpdateRate)
+	ticker := time.NewTicker(fixedDeltaTime)
+	defer ticker.Stop()
 
 	for !window.ShouldClose() {
 		currentFrame := float32(glfw.GetTime())
 		deltaTime = currentFrame - lastFrame
 		lastFrame = currentFrame
+
+		if utils.GetContext().Debug {
+			utils.Logger().Printf("Frame time: %.2f ms\n", deltaTime*1000)
+		}
 
 		fpsCounter(window)
 
@@ -99,51 +105,74 @@ func main() {
 		gl.ClearColor(0.0, 0.0, 0.0, 1.0)
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-		// Lighting
-		lightingShader.Use()
-		lightingShader.SetVec3Val("viewPos", cam.CameraPos)
+		select {
+		case <-ticker.C:
+			fixedUpdate(window)
+		default:
+		}
 
-		projection := cam.ComputeProjection(g_width, g_height)
-		lightingShader.SetMat4("projection", projection)
-		view := cam.ComputeView()
-		lightingShader.SetMat4("view", view)
-
-		// Directional light
-		lightingShader.SetVec3("dirLight.direction", -0.2, -1.0, -0.3)
-		lightingShader.SetVec3("dirLight.ambient", 0.2, 0.2, 0.2)
-		lightingShader.SetVec3("dirLight.diffuse", 0.5, 0.5, 0.5)
-		lightingShader.SetVec3("dirLight.specular", 1.0, 1.0, 1.0)
-
-		// Point light
-		// for i, pointLightPos := range pointLightPositions {
-		// 	lightingShader.SetVec3Val(fmt.Sprintf("pointLights[%d].position", i), pointLightPos)
-		// 	lightingShader.SetVec3(fmt.Sprintf("pointLights[%d].ambiant", i), 0.05, 0.05, 0.05)
-		// 	lightingShader.SetVec3(fmt.Sprintf("pointLights[%d].diffuse", i), 0.8, 0.8, 0.8)
-		// 	lightingShader.SetVec3(fmt.Sprintf("pointLights[%d].specular", i), 1.0, 1.0, 1.0)
-		// 	lightingShader.SetFloat(fmt.Sprintf("pointLights[%d].constant", i), 1.0)
-		// 	lightingShader.SetFloat(fmt.Sprintf("pointLights[%d].linear", i), 0.09)
-		// 	lightingShader.SetFloat(fmt.Sprintf("pointLights[%d].quadratic", i), 0.032)
-		// }
-
-		// Spot light
-		lightingShader.SetVec3Val("spotLight.position", cam.CameraPos)
-		lightingShader.SetVec3Val("spotLight.direction", cam.CameraFront)
-		lightingShader.SetVec3("spotLight.ambient", 0.0, 0.0, 0.0)
-		lightingShader.SetVec3("spotLight.diffuse", 1.0, 1.0, 1.0)
-		lightingShader.SetVec3("spotLight.specular", 1.0, 1.0, 1.0)
-		lightingShader.SetFloat("spotLight.constant", 1.0)
-		lightingShader.SetFloat("spotLight.linear", 0.09)
-		lightingShader.SetFloat("spotLight.quadratic", 0.032)
-		lightingShader.SetFloat("spotLight.cutOff", float32(math.Cos(float64(mgl32.DegToRad(12.5)))))
-		lightingShader.SetFloat("spotLight.outerCutOff", float32(math.Cos(float64(mgl32.DegToRad(15.0)))))
-
-		modelVec := mgl32.Ident4()
-		modelVec = modelVec.Mul4(mgl32.Translate3D(0.0, 0.0, 0.0))
-		lightingShader.SetMat4("model", modelVec)
-		model.Draw(lightingShader)
+		update(lightingShader, cam, &model)
 
 		window.SwapBuffers()
 		glfw.PollEvents()
+	}
+}
+
+func update(shader *shaders.Shader, cam *camera.Camera, model *object.Model) {
+	// Lighting
+	shader.Use()
+	shader.SetVec3Val("viewPos", cam.CameraPos)
+
+	projection := cam.ComputeProjection(g_width, g_height)
+	shader.SetMat4("projection", projection)
+	view := cam.ComputeView()
+	shader.SetMat4("view", view)
+
+	// Directional light
+	shader.SetVec3("dirLight.direction", -0.2, -1.0, -0.3)
+	shader.SetVec3("dirLight.ambient", 0.2, 0.2, 0.2)
+	shader.SetVec3("dirLight.diffuse", 0.5, 0.5, 0.5)
+	shader.SetVec3("dirLight.specular", 1.0, 1.0, 1.0)
+
+	// Point light
+	// for i, pointLightPos := range pointLightPositions {
+	// 	lightingShader.SetVec3Val(fmt.Sprintf("pointLights[%d].position", i), pointLightPos)
+	// 	lightingShader.SetVec3(fmt.Sprintf("pointLights[%d].ambiant", i), 0.05, 0.05, 0.05)
+	// 	lightingShader.SetVec3(fmt.Sprintf("pointLights[%d].diffuse", i), 0.8, 0.8, 0.8)
+	// 	lightingShader.SetVec3(fmt.Sprintf("pointLights[%d].specular", i), 1.0, 1.0, 1.0)
+	// 	lightingShader.SetFloat(fmt.Sprintf("pointLights[%d].constant", i), 1.0)
+	// 	lightingShader.SetFloat(fmt.Sprintf("pointLights[%d].linear", i), 0.09)
+	// 	lightingShader.SetFloat(fmt.Sprintf("pointLights[%d].quadratic", i), 0.032)
+	// }
+
+	// Spot light
+	shader.SetVec3Val("spotLight.position", cam.CameraPos)
+	shader.SetVec3Val("spotLight.direction", cam.CameraFront)
+	shader.SetVec3("spotLight.ambient", 0.0, 0.0, 0.0)
+	shader.SetVec3("spotLight.diffuse", 1.0, 1.0, 1.0)
+	shader.SetVec3("spotLight.specular", 1.0, 1.0, 1.0)
+	shader.SetFloat("spotLight.constant", 1.0)
+	shader.SetFloat("spotLight.linear", 0.09)
+	shader.SetFloat("spotLight.quadratic", 0.032)
+	shader.SetFloat("spotLight.cutOff", float32(math.Cos(float64(mgl32.DegToRad(12.5)))))
+	shader.SetFloat("spotLight.outerCutOff", float32(math.Cos(float64(mgl32.DegToRad(15.0)))))
+
+	modelVec := mgl32.Ident4()
+	modelVec = modelVec.Mul4(mgl32.Translate3D(0.0, 0.0, 0.0))
+	shader.SetMat4("model", modelVec)
+	model.Draw(shader)
+}
+
+func fixedUpdate(window *glfw.Window) {
+	if window.GetKey(glfw.KeyZ) == glfw.Press && glfw.GetTime()-utils.GetContext().LastWireframeChange >= 1 {
+		// Wireframe
+		if utils.GetContext().Wireframe {
+			gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
+		} else {
+			gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
+		}
+		utils.GetContext().Wireframe = !utils.GetContext().Wireframe
+		utils.GetContext().LastWireframeChange = glfw.GetTime()
 	}
 }
 

@@ -1,25 +1,26 @@
 package utils
 
 import (
-	"fmt"
 	"os"
 	"reflect"
 	"sync"
 	"unsafe"
 )
 
-var lock = &sync.Mutex{}
+var lockContext = &sync.Mutex{}
 
 type Context struct {
-	Debug bool
+	Debug               bool
+	Wireframe           bool
+	LastWireframeChange float64
 }
 
 var contextInstance *Context
 
 func GetContext() *Context {
 	if contextInstance == nil {
-		lock.Lock()
-		defer lock.Unlock()
+		lockContext.Lock()
+		defer lockContext.Unlock()
 		if contextInstance == nil {
 			contextInstance = &Context{}
 		}
@@ -39,7 +40,7 @@ func OffsetOf[T any](fieldName string) (uintptr, error) {
 
 	field, ok := rt.FieldByName(fieldName)
 	if !ok {
-		return 0, fmt.Errorf("field %q not found", fieldName)
+		return 0, Logger().Errorf("field %q not found", fieldName)
 	}
 
 	return field.Offset, nil

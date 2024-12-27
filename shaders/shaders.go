@@ -1,9 +1,8 @@
 package shaders
 
 import (
+	"3d-engine/utils"
 	"embed"
-	"fmt"
-	"log"
 	"strings"
 
 	"github.com/go-gl/gl/v4.6-core/gl"
@@ -41,7 +40,7 @@ func CreateShaderProgram(nameVertex, nameFragment string) (*Shader, error) {
 	if success == gl.FALSE {
 		infoLog := make([]byte, 512)
 		gl.GetProgramInfoLog(shaderProgram, 512, nil, &infoLog[0])
-		return nil, fmt.Errorf("ERROR::SHADER::PROGRAM::COMPILATION_FAILED\n%s\n", string(infoLog))
+		return nil, utils.Logger().Errorf("ERROR::SHADER::PROGRAM::COMPILATION_FAILED\n%s\n", string(infoLog))
 	}
 
 	return &Shader{ProgramId: shaderProgram}, nil
@@ -50,7 +49,7 @@ func CreateShaderProgram(nameVertex, nameFragment string) (*Shader, error) {
 func compileShader(name string, shaderType uint32) uint32 {
 	shaderSourceStr, err := getShader(name)
 	if err != nil {
-		log.Fatalln(err)
+		utils.Logger().Fatalln(err)
 	}
 
 	shaderSource, freeShader := gl.Strs(shaderSourceStr + "\x00")
@@ -65,7 +64,7 @@ func compileShader(name string, shaderType uint32) uint32 {
 	if success == gl.FALSE {
 		infoLog := make([]byte, 512)
 		gl.GetShaderInfoLog(shader, 512, nil, &infoLog[0])
-		fmt.Println("ERROR::SHADER::"+strings.ToUpper(name)+"::COMPILATION_FAILED", string(infoLog))
+		utils.Logger().Fatalln("ERROR::SHADER::"+strings.ToUpper(name)+"::COMPILATION_FAILED", string(infoLog))
 	}
 
 	return shader
@@ -74,7 +73,7 @@ func compileShader(name string, shaderType uint32) uint32 {
 func getShader(name string) (string, error) {
 	content, err := shaderDir.ReadFile(name)
 	if err != nil {
-		return "", fmt.Errorf("failed to read file: %w", err)
+		return "", utils.Logger().Errorf("failed to read file: %s\n", err)
 	}
 
 	return string(content), nil
