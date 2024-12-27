@@ -28,8 +28,7 @@ func (m *Model) LoadScene(path string) {
 	if utils.GetContext().Debug {
 		log.Default().Println("Importing file: ", path)
 	}
-	// asig.PostProcessGenNormals,
-	scene, release, err := asig.ImportFile(path, asig.PostProcessTriangulate|asig.PostProcessJoinIdenticalVertices|asig.PostProcessOptimizeMeshes|asig.PostProcessFlipUVs|asig.PostProcessSplitLargeMeshes)
+	scene, release, err := asig.ImportFile(path, asig.PostProcessTriangulate|asig.PostProcessJoinIdenticalVertices|asig.PostProcessOptimizeMeshes|asig.PostProcessFlipUVs|asig.PostProcessSplitLargeMeshes|asig.PostProcessGenNormals)
 	if err != nil {
 		panic(err)
 	}
@@ -45,7 +44,7 @@ func (m *Model) processNode(node *asig.Node, scene *asig.Scene) {
 		log.Default().Println("Processing node: ", node.Name)
 	}
 	for i := 0; i < len(node.MeshIndicies); i++ {
-		mesh := scene.Meshes[i]
+		mesh := scene.Meshes[node.MeshIndicies[i]]
 		m.Meshes = append(m.Meshes, *m.processMesh(mesh, scene))
 	}
 
@@ -99,11 +98,7 @@ func (m *Model) processMesh(mesh *asig.Mesh, scene *asig.Scene) *Mesh {
 		textures = append(textures, heightMaps...)
 	}
 
-	return &Mesh{
-		Vertices: vertices,
-		Indices:  indices,
-		Textures: textures,
-	}
+	return CreateMesh(vertices, indices, textures)
 }
 
 func (m *Model) loadMaterialTextures(material *asig.Material, textureType asig.TextureType, typeName string) []Texture {
@@ -128,69 +123,23 @@ func (m *Model) loadMaterialTextures(material *asig.Material, textureType asig.T
 		if !skip {
 			var texture Texture
 
-			texture.Id = textureFromFile(aTexture.Path, m.Directory)
+			textureId, err := textureFromFile(aTexture.Path, m.Directory)
+			if err != nil {
+				panic(err) // TODO: handle better
+			}
+
+			texture.Id = textureId
 			texture.Path = aTexture.Path
 			texture.Type = typeName
 
 			textures = append(textures, texture)
+			m.TexturesLoaded = append(m.TexturesLoaded, texture)
 		}
 	}
 
 	return textures
 }
 
-func textureFromFile(path, directory string) uint32 {
+func textureFromFile(path, directory string) (uint32, error) {
 	return tex.Load(directory + "/" + path)
-}
-
-func LoadModel() []float32 {
-	return cube()
-}
-
-// TODO: delete
-func cube() []float32 {
-	return []float32{
-		// position 3 // normals 3 // tex coords 3
-		-0.5, -0.5, -0.5, 0.0, 0.0, -1.0, 0.0, 0.0,
-		0.5, -0.5, -0.5, 0.0, 0.0, -1.0, 1.0, 0.0,
-		0.5, 0.5, -0.5, 0.0, 0.0, -1.0, 1.0, 1.0,
-		0.5, 0.5, -0.5, 0.0, 0.0, -1.0, 1.0, 1.0,
-		-0.5, 0.5, -0.5, 0.0, 0.0, -1.0, 0.0, 1.0,
-		-0.5, -0.5, -0.5, 0.0, 0.0, -1.0, 0.0, 0.0,
-
-		-0.5, -0.5, 0.5, 0.0, 0.0, 1.0, 0.0, 0.0,
-		0.5, -0.5, 0.5, 0.0, 0.0, 1.0, 1.0, 0.0,
-		0.5, 0.5, 0.5, 0.0, 0.0, 1.0, 1.0, 1.0,
-		0.5, 0.5, 0.5, 0.0, 0.0, 1.0, 1.0, 1.0,
-		-0.5, 0.5, 0.5, 0.0, 0.0, 1.0, 0.0, 1.0,
-		-0.5, -0.5, 0.5, 0.0, 0.0, 1.0, 0.0, 0.0,
-
-		-0.5, 0.5, 0.5, -1.0, 0.0, 0.0, 1.0, 0.0,
-		-0.5, 0.5, -0.5, -1.0, 0.0, 0.0, 1.0, 1.0,
-		-0.5, -0.5, -0.5, -1.0, 0.0, 0.0, 0.0, 1.0,
-		-0.5, -0.5, -0.5, -1.0, 0.0, 0.0, 0.0, 1.0,
-		-0.5, -0.5, 0.5, -1.0, 0.0, 0.0, 0.0, 0.0,
-		-0.5, 0.5, 0.5, -1.0, 0.0, 0.0, 1.0, 0.0,
-
-		0.5, 0.5, 0.5, 1.0, 0.0, 0.0, 1.0, 0.0,
-		0.5, 0.5, -0.5, 1.0, 0.0, 0.0, 1.0, 1.0,
-		0.5, -0.5, -0.5, 1.0, 0.0, 0.0, 0.0, 1.0,
-		0.5, -0.5, -0.5, 1.0, 0.0, 0.0, 0.0, 1.0,
-		0.5, -0.5, 0.5, 1.0, 0.0, 0.0, 0.0, 0.0,
-		0.5, 0.5, 0.5, 1.0, 0.0, 0.0, 1.0, 0.0,
-
-		-0.5, -0.5, -0.5, 0.0, -1.0, 0.0, 0.0, 1.0,
-		0.5, -0.5, -0.5, 0.0, -1.0, 0.0, 1.0, 1.0,
-		0.5, -0.5, 0.5, 0.0, -1.0, 0.0, 1.0, 0.0,
-		0.5, -0.5, 0.5, 0.0, -1.0, 0.0, 1.0, 0.0,
-		-0.5, -0.5, 0.5, 0.0, -1.0, 0.0, 0.0, 0.0,
-		-0.5, -0.5, -0.5, 0.0, -1.0, 0.0, 0.0, 1.0,
-
-		-0.5, 0.5, -0.5, 0.0, 1.0, 0.0, 0.0, 1.0,
-		0.5, 0.5, -0.5, 0.0, 1.0, 0.0, 1.0, 1.0,
-		0.5, 0.5, 0.5, 0.0, 1.0, 0.0, 1.0, 0.0,
-		0.5, 0.5, 0.5, 0.0, 1.0, 0.0, 1.0, 0.0,
-		-0.5, 0.5, 0.5, 0.0, 1.0, 0.0, 0.0, 0.0,
-		-0.5, 0.5, -0.5, 0.0, 1.0, 0.0, 0.0, 1.0,
-	}
 }
