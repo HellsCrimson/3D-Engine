@@ -149,7 +149,7 @@ func update(shader *shaders.Shader, cam *camera.Camera, model *object.Model) {
 
 	modelVec := mgl32.Ident4()
 	modelVec = modelVec.Mul4(mgl32.Translate3D(config.Object.OriginX, config.Object.OriginY, config.Object.OriginZ))
-	modelVec = modelVec.Mul4(mgl32.HomogRotate3D(config.Object.RotationAngle, mgl32.Vec3{config.Object.RotationX, config.Object.RotationY, config.Object.RotationZ}))
+	modelVec = modelVec.Mul4(mgl32.HomogRotate3D(mgl32.DegToRad(config.Object.RotationAngle), mgl32.Vec3{config.Object.RotationX, config.Object.RotationY, config.Object.RotationZ}))
 	modelVec = modelVec.Mul4(mgl32.Scale3D(config.Object.ScaleX, config.Object.ScaleY, config.Object.ScaleZ))
 	shader.SetMat4("model", modelVec)
 	model.Draw(shader)
