@@ -9,4 +9,11 @@ require (
 	github.com/go-gl/mathgl v1.2.0
 )
 
-require github.com/bloeys/gglm v0.3.1 // indirect
+require golang.org/x/sys v0.21.0 // indirect
+
+require (
+	github.com/bloeys/gglm v0.3.1 // indirect
+	github.com/dblezek/tga v0.0.0-20150626111426-80720cbc1017
+	github.com/jessevdk/go-flags v1.6.1
+	gopkg.in/yaml.v3 v3.0.1
+)

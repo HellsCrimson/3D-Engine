@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"sync"
 	"unsafe"
+
+	"github.com/jessevdk/go-flags"
 )
 
 var lockContext = &sync.Mutex{}
@@ -13,6 +15,8 @@ type Context struct {
 	Debug               bool
 	Wireframe           bool
 	LastWireframeChange float64
+
+	ModelPath string
 }
 
 var contextInstance *Context
@@ -47,10 +51,23 @@ func OffsetOf[T any](fieldName string) (uintptr, error) {
 }
 
 func ParseArgs() {
-	if len(os.Args) > 1 {
-		if os.Args[1] == "-v" {
-			context := GetContext()
-			context.Debug = true
-		}
+	var opts struct {
+		Verbose []bool `short:"v" long:"verbose" description:"Show verbose debug information"`
+		Path    string `short:"p" long:"path" description:"The path to the object" required:"true"`
 	}
+
+	context := GetContext()
+
+	_, err := flags.Parse(&opts)
+	if err != nil {
+		os.Exit(1)
+	}
+
+	if len(opts.Verbose) > 0 {
+		context.Debug = opts.Verbose[0]
+	} else {
+		context.Debug = false
+	}
+
+	context.ModelPath = opts.Path
 }

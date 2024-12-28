@@ -4,6 +4,7 @@ import (
 	"3d-engine/camera"
 	"3d-engine/object"
 	"3d-engine/shaders"
+	"3d-engine/textures"
 	"3d-engine/utils"
 	"math"
 	"runtime"
@@ -26,6 +27,8 @@ var (
 	// FPS counter
 	lastFrameCounter float32 = 0.0
 	nbFrames                 = 0
+
+	config *utils.Config
 )
 
 func init() {
@@ -33,7 +36,16 @@ func init() {
 }
 
 func main() {
+	var err error
+
 	utils.ParseArgs()
+	config, err = utils.LoadConfig("./config.yml")
+	if err != nil {
+		utils.Logger().Fatalln("Could not load config:", err)
+	}
+
+	g_width = config.Width
+	g_height = config.Height
 
 	if err := glfw.Init(); err != nil {
 		utils.Logger().Fatalln("Could not init glfw:", err)
@@ -70,6 +82,11 @@ func main() {
 	}
 	defer lightingShader.Delete()
 
+	lightingShader.NoTexture, err = textures.Load("./textures/missing.png")
+	if err != nil {
+		utils.Logger().Fatalln("Could not load missing texture", err)
+	}
+
 	// lightSourceShader, err := shaders.CreateShaderProgram("lighting.vert", "lightSource.frag")
 	// if err != nil {
 	// 	log.Fatalln("Could not create light shader:", err)
@@ -77,9 +94,9 @@ func main() {
 	// defer lightSourceShader.Delete()
 
 	model := object.Model{}
-	model.LoadScene("./object/backpack/backpack.obj")
+	model.LoadScene(utils.GetContext().ModelPath)
 
-	cam := camera.NewCamera()
+	cam := camera.NewCamera(config)
 
 	window.SetCursorPosCallback(cam.MouseCallback)
 	window.SetScrollCallback(cam.ScrollCallback)
@@ -128,6 +145,30 @@ func update(shader *shaders.Shader, cam *camera.Camera, model *object.Model) {
 	view := cam.ComputeView()
 	shader.SetMat4("view", view)
 
+	computeLight(shader, cam)
+
+	modelVec := mgl32.Ident4()
+	modelVec = modelVec.Mul4(mgl32.Translate3D(config.Object.OriginX, config.Object.OriginY, config.Object.OriginZ))
+	modelVec = modelVec.Mul4(mgl32.HomogRotate3D(config.Object.RotationAngle, mgl32.Vec3{config.Object.RotationX, config.Object.RotationY, config.Object.RotationZ}))
+	modelVec = modelVec.Mul4(mgl32.Scale3D(config.Object.ScaleX, config.Object.ScaleY, config.Object.ScaleZ))
+	shader.SetMat4("model", modelVec)
+	model.Draw(shader)
+}
+
+func fixedUpdate(window *glfw.Window) {
+	if window.GetKey(glfw.KeyZ) == glfw.Press && glfw.GetTime()-utils.GetContext().LastWireframeChange >= 1 {
+		// Wireframe
+		if utils.GetContext().Wireframe {
+			gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
+		} else {
+			gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
+		}
+		utils.GetContext().Wireframe = !utils.GetContext().Wireframe
+		utils.GetContext().LastWireframeChange = glfw.GetTime()
+	}
+}
+
+func computeLight(shader *shaders.Shader, cam *camera.Camera) {
 	// Directional light
 	shader.SetVec3("dirLight.direction", -0.2, -1.0, -0.3)
 	shader.SetVec3("dirLight.ambient", 0.2, 0.2, 0.2)
@@ -156,24 +197,6 @@ func update(shader *shaders.Shader, cam *camera.Camera, model *object.Model) {
 	shader.SetFloat("spotLight.quadratic", 0.032)
 	shader.SetFloat("spotLight.cutOff", float32(math.Cos(float64(mgl32.DegToRad(12.5)))))
 	shader.SetFloat("spotLight.outerCutOff", float32(math.Cos(float64(mgl32.DegToRad(15.0)))))
-
-	modelVec := mgl32.Ident4()
-	modelVec = modelVec.Mul4(mgl32.Translate3D(0.0, 0.0, 0.0))
-	shader.SetMat4("model", modelVec)
-	model.Draw(shader)
-}
-
-func fixedUpdate(window *glfw.Window) {
-	if window.GetKey(glfw.KeyZ) == glfw.Press && glfw.GetTime()-utils.GetContext().LastWireframeChange >= 1 {
-		// Wireframe
-		if utils.GetContext().Wireframe {
-			gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
-		} else {
-			gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
-		}
-		utils.GetContext().Wireframe = !utils.GetContext().Wireframe
-		utils.GetContext().LastWireframeChange = glfw.GetTime()
-	}
 }
 
 func processInput(window *glfw.Window, cam *camera.Camera) {

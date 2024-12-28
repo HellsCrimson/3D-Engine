@@ -66,7 +66,7 @@ func (m *Model) processMesh(mesh *asig.Mesh, scene *asig.Scene) *Mesh {
 			vertex.Normal = mesh.Normals[i].Data
 		}
 
-		if len(mesh.TexCoords) > 0 {
+		if len(mesh.TexCoords) > 0 && len(mesh.TexCoords[0]) > i {
 			vertex.TexCoords = mgl32.Vec2{mesh.TexCoords[0][i].X(), mesh.TexCoords[0][i].Y()}
 		} else {
 			vertex.TexCoords = mgl32.Vec2{0.0, 0.0}

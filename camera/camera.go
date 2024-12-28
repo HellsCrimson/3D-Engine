@@ -1,6 +1,7 @@
 package camera
 
 import (
+	"3d-engine/utils"
 	"math"
 
 	"github.com/go-gl/glfw/v3.3/glfw"
@@ -23,22 +24,27 @@ type Camera struct {
 	LastX       float32
 	LastY       float32
 
-	firstMouse bool
+	firstMouse        bool
+	renderDistanceMin float32
+	renderDistanceMax float32
 }
 
-func NewCamera() *Camera {
+func NewCamera(config *utils.Config) *Camera {
 	return &Camera{
 		CameraPos:   mgl32.Vec3{0.0, 0.0, 3.0},
 		CameraFront: mgl32.Vec3{0.0, 0.0, -1.0},
 		CameraUp:    mgl32.Vec3{0.0, 1.0, 0.0},
 		CameraRight: mgl32.Vec3{1.0, 0.0, 0.0},
-		CameraSpeed: 3.0,
-		CameraFov:   45.0,
+		CameraSpeed: config.CameraSpeed,
+		CameraFov:   config.Fov,
 		Yaw:         -90.0,
 		Pitch:       0.0,
 		LastX:       400,
 		LastY:       300,
-		firstMouse:  true,
+
+		firstMouse:        true,
+		renderDistanceMin: config.RenderDistanceMin,
+		renderDistanceMax: config.RenderDistanceMax,
 	}
 }
 
@@ -129,5 +135,5 @@ func (c *Camera) ComputeView() mgl32.Mat4 {
 }
 
 func (c *Camera) ComputeProjection(width, height int) mgl32.Mat4 {
-	return mgl32.Perspective(mgl32.DegToRad(c.CameraFov), float32(width)/float32(height), 0.1, 100.0)
+	return mgl32.Perspective(mgl32.DegToRad(c.CameraFov), float32(width)/float32(height), c.renderDistanceMin, c.renderDistanceMax)
 }

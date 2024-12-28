@@ -79,7 +79,8 @@ func (m *Mesh) setupMesh() {
 func (m *Mesh) Draw(shader *shaders.Shader) {
 	var diffuseNr, specularNr, normalNr, heightNr uint32 = 1, 1, 1, 1
 
-	for i := int32(0); i < int32(len(m.Textures)); i++ {
+	i := int32(0)
+	for ; i < int32(len(m.Textures)); i++ {
 		gl.ActiveTexture(gl.TEXTURE0 + uint32(i))
 
 		var number string
@@ -88,6 +89,7 @@ func (m *Mesh) Draw(shader *shaders.Shader) {
 		if name == "texture_diffuse" {
 			number = strconv.FormatUint(uint64(diffuseNr), 10)
 			diffuseNr++
+			shader.SetBool("material.has_diffuse", true)
 		} else if name == "texture_specular" {
 			number = strconv.FormatUint(uint64(specularNr), 10)
 			specularNr++
@@ -99,9 +101,13 @@ func (m *Mesh) Draw(shader *shaders.Shader) {
 			heightNr++
 		}
 
-		shader.SetInt("material."+name+number, int32(i))
+		shader.SetInt("material."+name+number, i)
 		gl.BindTexture(gl.TEXTURE_2D, m.Textures[i].Id)
 	}
+
+	gl.ActiveTexture(gl.TEXTURE0 + uint32(i))
+	shader.SetInt("material.missing_texture", i)
+	gl.BindTexture(gl.TEXTURE_2D, shader.NoTexture)
 
 	gl.BindVertexArray(m.vao)
 	gl.DrawElements(gl.TRIANGLES, int32(len(m.Indices)), gl.UNSIGNED_INT, nil)

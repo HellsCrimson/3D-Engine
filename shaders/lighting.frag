@@ -11,6 +11,10 @@ struct Material {
     sampler2D texture_specular1;
     sampler2D emission;
     float shininess;
+
+    bool has_diffuse;
+
+    sampler2D missing_texture;
 };
 
 struct DirLight {
@@ -76,7 +80,11 @@ void main()
     // res += vec3(texture(material.emission, TexCoords));
 
     // FragColor = vec4(res, 1.0);
-    FragColor = texture(material.texture_diffuse1, TexCoords);
+    if (material.has_diffuse) {
+        FragColor = texture(material.texture_diffuse1, TexCoords);
+    } else {
+        FragColor = texture(material.missing_texture, TexCoords);
+    }
 }
 
 vec3 CalcDirLight(DirLight light, vec3 normal, vec3 viewDir)

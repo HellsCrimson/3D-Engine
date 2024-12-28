@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/dblezek/tga"
 	"github.com/go-gl/gl/v4.6-core/gl"
 )
 
@@ -54,8 +55,8 @@ func getImage(name string) (*Texture, error) {
 		return nil, err
 	}
 
-	flipped := flipImageVertically(img)
-	// rgba := imageToRGBA(flipped)
+	// flipped := flipImageVertically(img)
+	flipped := imageToRGBA(img)
 
 	return &Texture{
 		Width:  int32(flipped.Rect.Dx()),
@@ -77,6 +78,11 @@ func decodeImage(extension string, file *os.File) (image.Image, error) {
 		img, err = png.Decode(file)
 		if err != nil {
 			return nil, utils.Logger().Errorf("Error decoding PNG: %s\n", err)
+		}
+	} else if extension == ".tga" {
+		img, err = tga.Decode(file)
+		if err != nil {
+			return nil, utils.Logger().Errorf("Error decoding TGA: %s\n", err)
 		}
 	} else {
 		return nil, utils.Logger().Errorf("Extension '%s' not supported\n", extension)
