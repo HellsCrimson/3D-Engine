@@ -3,6 +3,7 @@ package main
 import (
 	"3d-engine/camera"
 	"3d-engine/object"
+	"3d-engine/scene"
 	"3d-engine/shaders"
 	"3d-engine/textures"
 	"3d-engine/utils"
@@ -29,6 +30,8 @@ var (
 	nbFrames                 = 0
 
 	config *utils.Config
+
+	models []*object.Model
 )
 
 func init() {
@@ -39,9 +42,14 @@ func main() {
 	var err error
 
 	utils.ParseArgs()
-	config, err = utils.LoadConfig("./config.yml")
+	config, err = utils.LoadConfig(utils.GetContext().ConfigPath)
 	if err != nil {
 		utils.Logger().Fatalln("Could not load config:", err)
+	}
+
+	scene, err := scene.Load(utils.GetContext().ScenePath)
+	if err != nil {
+		utils.Logger().Fatalln("Could not load scene:", err)
 	}
 
 	g_width = config.Width
@@ -93,8 +101,16 @@ func main() {
 	// }
 	// defer lightSourceShader.Delete()
 
-	model := object.Model{}
-	model.LoadScene(utils.GetContext().ModelPath)
+	for _, obj := range scene.Objects {
+		model := object.Model{}
+		model.LoadScene(obj.Path)
+
+		model.Coordinates = mgl32.Vec3{obj.OriginX, obj.OriginY, obj.OriginZ}
+		model.Rotation = mgl32.Vec4{obj.RotationX, obj.RotationY, obj.RotationZ, obj.RotationAngle}
+		model.Scale = mgl32.Vec3{obj.ScaleX, obj.ScaleY, obj.ScaleZ}
+
+		models = append(models, &model)
+	}
 
 	cam := camera.NewCamera(config)
 
@@ -111,7 +127,7 @@ func main() {
 		deltaTime = currentFrame - lastFrame
 		lastFrame = currentFrame
 
-		if utils.GetContext().Debug {
+		if utils.GetContext().DebugLevel > utils.Info {
 			utils.Logger().Printf("Frame time: %.2f ms\n", deltaTime*1000)
 		}
 
@@ -128,14 +144,14 @@ func main() {
 		default:
 		}
 
-		update(lightingShader, cam, &model)
+		update(lightingShader, cam, models)
 
 		window.SwapBuffers()
 		glfw.PollEvents()
 	}
 }
 
-func update(shader *shaders.Shader, cam *camera.Camera, model *object.Model) {
+func update(shader *shaders.Shader, cam *camera.Camera, models []*object.Model) {
 	// Lighting
 	shader.Use()
 	shader.SetVec3Val("viewPos", cam.CameraPos)
@@ -147,12 +163,14 @@ func update(shader *shaders.Shader, cam *camera.Camera, model *object.Model) {
 
 	computeLight(shader, cam)
 
-	modelVec := mgl32.Ident4()
-	modelVec = modelVec.Mul4(mgl32.Translate3D(config.Object.OriginX, config.Object.OriginY, config.Object.OriginZ))
-	modelVec = modelVec.Mul4(mgl32.HomogRotate3D(mgl32.DegToRad(config.Object.RotationAngle), mgl32.Vec3{config.Object.RotationX, config.Object.RotationY, config.Object.RotationZ}))
-	modelVec = modelVec.Mul4(mgl32.Scale3D(config.Object.ScaleX, config.Object.ScaleY, config.Object.ScaleZ))
-	shader.SetMat4("model", modelVec)
-	model.Draw(shader)
+	for _, model := range models {
+		modelVec := mgl32.Ident4()
+		modelVec = modelVec.Mul4(mgl32.Translate3D(model.Coordinates.X(), model.Coordinates.Y(), model.Coordinates.Z()))
+		modelVec = modelVec.Mul4(mgl32.HomogRotate3D(mgl32.DegToRad(model.Rotation.W()), model.Rotation.Vec3()))
+		modelVec = modelVec.Mul4(mgl32.Scale3D(model.Scale.X(), model.Scale.Y(), model.Scale.Z()))
+		shader.SetMat4("model", modelVec)
+		model.Draw(shader)
+	}
 }
 
 func fixedUpdate(window *glfw.Window) {

@@ -3,15 +3,4 @@ renderDistanceMax: 1000.0
 fov: 45.0
 width: 1600
 height: 1100
-cameraSpeed: 10.0
-object:
-  originX: 0.0
-  originY: 0.0
-  originZ: 0.0
-  scaleX: 1.0
-  scaleY: 1.0
-  scaleZ: 1.0
-  rotationAngle: 0.0
-  rotationX: 0.0
-  rotationY: 0.0
-  rotationZ: 0.0
+cameraSpeed: 5.0

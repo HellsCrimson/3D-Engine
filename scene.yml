@@ -1,0 +1,23 @@
+objects:
+  - path: testObjects/obj1/object.obj
+    originX: 0.0
+    originY: 10.0
+    originZ: 0.0
+    scaleX: 1.0
+    scaleY: 1.0
+    scaleZ: 1.0
+    rotationAngle: 0.0
+    rotationX: 0.0
+    rotationY: 0.0
+    rotationZ: 0.0
+  - path: testObjects/obj2/object.obj
+    originX: 0.0
+    originY: 0.0
+    originZ: 0.0
+    scaleX: 1.0
+    scaleY: 1.0
+    scaleZ: 1.0
+    rotationAngle: 0.0
+    rotationX: 0.0
+    rotationY: 0.0
+    rotationZ: 0.0

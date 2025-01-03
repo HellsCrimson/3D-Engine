@@ -13,18 +13,6 @@ type Config struct {
 	Width             int     `yaml:"width"`
 	Height            int     `yaml:"height"`
 	CameraSpeed       float32 `yaml:"cameraSpeed"`
-	Object            struct {
-		OriginX       float32 `yaml:"originX"`
-		OriginY       float32 `yaml:"originY"`
-		OriginZ       float32 `yaml:"originZ"`
-		ScaleX        float32 `yaml:"scaleX"`
-		ScaleY        float32 `yaml:"scaleY"`
-		ScaleZ        float32 `yaml:"scaleZ"`
-		RotationAngle float32 `yaml:"rotationAngle"`
-		RotationX     float32 `yaml:"rotationX"`
-		RotationY     float32 `yaml:"rotationY"`
-		RotationZ     float32 `yaml:"rotationZ"`
-	} `yaml:"object"`
 }
 
 func LoadConfig(path string) (*Config, error) {

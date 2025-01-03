@@ -12,11 +12,12 @@ import (
 var lockContext = &sync.Mutex{}
 
 type Context struct {
-	Debug               bool
+	DebugLevel          DebugLevel
 	Wireframe           bool
 	LastWireframeChange float64
 
-	ModelPath string
+	ConfigPath string
+	ScenePath  string
 }
 
 var contextInstance *Context
@@ -53,7 +54,8 @@ func OffsetOf[T any](fieldName string) (uintptr, error) {
 func ParseArgs() {
 	var opts struct {
 		Verbose []bool `short:"v" long:"verbose" description:"Show verbose debug information"`
-		Path    string `short:"p" long:"path" description:"The path to the object" required:"true"`
+		Config  string `short:"c" long:"config" description:"The path to the config" default:"./config.yml"`
+		Scene   string `short:"s" long:"scene" description:"The path to the scene" default:"./scene.yml"`
 	}
 
 	context := GetContext()
@@ -63,11 +65,8 @@ func ParseArgs() {
 		os.Exit(1)
 	}
 
-	if len(opts.Verbose) > 0 {
-		context.Debug = opts.Verbose[0]
-	} else {
-		context.Debug = false
-	}
+	context.DebugLevel = DebugLevel(len(opts.Verbose))
 
-	context.ModelPath = opts.Path
+	context.ConfigPath = opts.Config
+	context.ScenePath = opts.Scene
 }

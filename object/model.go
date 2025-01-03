@@ -15,6 +15,10 @@ type Model struct {
 	Meshes         []Mesh
 	Directory      string
 	TexturesLoaded []Texture
+
+	Coordinates mgl32.Vec3
+	Rotation    mgl32.Vec4 // W is for the angle
+	Scale       mgl32.Vec3
 }
 
 func (m *Model) Draw(shader *shaders.Shader) {
@@ -24,7 +28,7 @@ func (m *Model) Draw(shader *shaders.Shader) {
 }
 
 func (m *Model) LoadScene(path string) {
-	if utils.GetContext().Debug {
+	if utils.GetContext().DebugLevel > utils.NoDebug {
 		log.Default().Println("Importing file: ", path)
 	}
 	scene, release, err := asig.ImportFile(path, asig.PostProcessTriangulate|asig.PostProcessJoinIdenticalVertices|asig.PostProcessOptimizeMeshes|asig.PostProcessFlipUVs|asig.PostProcessSplitLargeMeshes|asig.PostProcessGenNormals)
@@ -39,7 +43,7 @@ func (m *Model) LoadScene(path string) {
 }
 
 func (m *Model) processNode(node *asig.Node, scene *asig.Scene) {
-	if utils.GetContext().Debug {
+	if utils.GetContext().DebugLevel > utils.NoDebug {
 		log.Default().Println("Processing node: ", node.Name)
 	}
 	for i := 0; i < len(node.MeshIndicies); i++ {
