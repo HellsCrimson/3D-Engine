@@ -9,6 +9,7 @@ import (
 	"3d-engine/utils"
 	"math"
 	"runtime"
+	"sort"
 	"strconv"
 	"time"
 
@@ -90,7 +91,8 @@ func main() {
 	}
 	defer lightingShader.Delete()
 
-	lightingShader.NoTexture, err = textures.Load("./textures/missing.png")
+	transparent := false
+	lightingShader.NoTexture, err = textures.Load("./textures/missing.png", &transparent)
 	if err != nil {
 		utils.Logger().Fatalln("Could not load missing texture", err)
 	}
@@ -162,6 +164,10 @@ func update(shader *shaders.Shader, cam *camera.Camera, models []*object.Model) 
 	shader.SetMat4("view", view)
 
 	computeLight(shader, cam)
+
+	sort.Slice(models, func(i, j int) bool {
+		return cam.CameraPos.Sub(models[i].Coordinates).LenSqr() > cam.CameraPos.Sub(models[j].Coordinates).LenSqr()
+	})
 
 	for _, model := range models {
 		modelVec := mgl32.Ident4()

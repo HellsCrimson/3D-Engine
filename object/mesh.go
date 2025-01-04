@@ -16,9 +16,10 @@ type Vertex struct {
 }
 
 type Texture struct {
-	Id   uint32
-	Type string
-	Path string
+	Id              uint32
+	Type            string
+	Path            string
+	HasTransparency bool
 }
 
 type Mesh struct {
@@ -77,10 +78,20 @@ func (m *Mesh) setupMesh() {
 }
 
 func (m *Mesh) Draw(shader *shaders.Shader) {
+	m.DrawSpecific(shader, false)
+	m.DrawSpecific(shader, true)
+}
+
+func (m *Mesh) DrawSpecific(shader *shaders.Shader, drawTransparent bool) {
 	var diffuseNr, specularNr, normalNr, heightNr uint32 = 1, 1, 1, 1
 
+	shouldDraw := len(m.Textures) == 0 && !drawTransparent
 	i := int32(0)
 	for ; i < int32(len(m.Textures)); i++ {
+		if m.Textures[i].HasTransparency == drawTransparent {
+			shouldDraw = true
+		}
+
 		gl.ActiveTexture(gl.TEXTURE0 + uint32(i))
 
 		var number string
@@ -105,6 +116,17 @@ func (m *Mesh) Draw(shader *shaders.Shader) {
 		gl.BindTexture(gl.TEXTURE_2D, m.Textures[i].Id)
 	}
 
+	if !shouldDraw {
+		return
+	}
+
+	if drawTransparent {
+		gl.Enable(gl.BLEND)
+		gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+		gl.BlendEquation(gl.FUNC_ADD)
+		// gl.DepthMask(false)
+	}
+
 	gl.ActiveTexture(gl.TEXTURE0 + uint32(i))
 	shader.SetInt("material.missing_texture", i)
 	gl.BindTexture(gl.TEXTURE_2D, shader.NoTexture)
@@ -114,4 +136,9 @@ func (m *Mesh) Draw(shader *shaders.Shader) {
 
 	gl.BindVertexArray(0)
 	gl.ActiveTexture(gl.TEXTURE0)
+
+	if drawTransparent {
+		gl.Disable(gl.BLEND)
+		// gl.DepthMask(true)
+	}
 }

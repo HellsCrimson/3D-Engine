@@ -4,7 +4,7 @@ in vec3 FragPos;
 in vec3 Normal;
 in vec2 TexCoords;
 
-out vec4 FragColor;
+layout(location = 0) out vec4 colorOut;
 
 struct Material {
     sampler2D texture_diffuse1;
@@ -66,24 +66,32 @@ vec3 CalcSpotLight(SpotLight light, vec3 normal, vec3 fragPos, vec3 viewDir);
 
 void main()
 {
-    vec3 norm = normalize(Normal);
-    vec3 viewDir = normalize(viewPos - FragPos);
+    // vec3 norm = normalize(Normal);
+    // vec3 viewDir = normalize(viewPos - FragPos);
     
-    vec3 res = CalcDirLight(dirLight, norm, viewDir);
+    // vec3 res = CalcDirLight(dirLight, norm, viewDir);
 
     // for (int i = 0; i < NR_POINT_LIGHT; i++)
     // {
     //     res += CalcPointLight(pointLights[i], norm, FragPos, viewDir);
     // }
-    res += CalcSpotLight(spotLight, norm, FragPos, viewDir);
+    // res += CalcSpotLight(spotLight, norm, FragPos, viewDir);
 
     // res += vec3(texture(material.emission, TexCoords));
 
     // FragColor = vec4(res, 1.0);
     if (material.has_diffuse) {
-        FragColor = texture(material.texture_diffuse1, TexCoords);
+        vec4 texture_color = texture(material.texture_diffuse1, TexCoords);
+        if (texture_color.a < 0.1) {
+            discard;
+        }
+        // FragColor = texture_color;
+        float alpha = texture_color.a;
+        colorOut.rgb = texture_color.rgb * alpha;
+        colorOut.a = alpha;
     } else {
-        FragColor = texture(material.missing_texture, TexCoords);
+        // FragColor = texture(material.missing_texture, TexCoords);
+        colorOut = texture(material.missing_texture, TexCoords);
     }
 }
 

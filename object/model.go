@@ -126,7 +126,8 @@ func (m *Model) loadMaterialTextures(material *asig.Material, textureType asig.T
 		if !skip {
 			var texture Texture
 
-			textureId, err := textureFromFile(aTexture.Path, m.Directory)
+			isTransparent := false
+			textureId, err := textureFromFile(aTexture.Path, m.Directory, &isTransparent)
 			if err != nil {
 				panic(err) // TODO: handle better
 			}
@@ -134,6 +135,7 @@ func (m *Model) loadMaterialTextures(material *asig.Material, textureType asig.T
 			texture.Id = textureId
 			texture.Path = aTexture.Path
 			texture.Type = typeName
+			texture.HasTransparency = isTransparent
 
 			textures = append(textures, texture)
 			m.TexturesLoaded = append(m.TexturesLoaded, texture)
@@ -143,6 +145,6 @@ func (m *Model) loadMaterialTextures(material *asig.Material, textureType asig.T
 	return textures
 }
 
-func textureFromFile(path, directory string) (uint32, error) {
-	return tex.Load(directory + "/" + path)
+func textureFromFile(path, directory string, isTransparent *bool) (uint32, error) {
+	return tex.Load(directory+"/"+path, isTransparent)
 }
