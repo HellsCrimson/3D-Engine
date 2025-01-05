@@ -80,6 +80,12 @@ func main() {
 	gl.Viewport(0, 0, int32(g_width), int32(g_height))
 
 	gl.Enable(gl.DEPTH_TEST)
+	gl.Enable(gl.CULL_FACE)
+
+	gl.CullFace(gl.BACK)
+	gl.FrontFace(gl.CCW)
+
+	glfw.SwapInterval(config.GetVsync())
 
 	window.SetFramebufferSizeCallback(framebufferSizeCallback)
 

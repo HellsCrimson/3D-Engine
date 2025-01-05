@@ -3,7 +3,6 @@ package object
 import (
 	"3d-engine/shaders"
 	"3d-engine/utils"
-	"strconv"
 
 	"github.com/go-gl/gl/v4.6-core/gl"
 	"github.com/go-gl/mathgl/mgl32"
@@ -85,6 +84,10 @@ func (m *Mesh) Draw(shader *shaders.Shader) {
 func (m *Mesh) DrawSpecific(shader *shaders.Shader, drawTransparent bool) {
 	var diffuseNr, specularNr, normalNr, heightNr uint32 = 1, 1, 1, 1
 
+	shader.SetBool("material.has_diffuse", false)
+	shader.SetBool("material.has_specular", false)
+	shader.SetBool("material.has_emission", false)
+
 	shouldDraw := len(m.Textures) == 0 && !drawTransparent
 	i := int32(0)
 	for ; i < int32(len(m.Textures)); i++ {
@@ -94,27 +97,30 @@ func (m *Mesh) DrawSpecific(shader *shaders.Shader, drawTransparent bool) {
 
 		gl.ActiveTexture(gl.TEXTURE0 + uint32(i))
 
-		var number string
 		name := m.Textures[i].Type
 
 		if name == "texture_diffuse" {
-			number = strconv.FormatUint(uint64(diffuseNr), 10)
 			diffuseNr++
 			shader.SetBool("material.has_diffuse", true)
 		} else if name == "texture_specular" {
-			number = strconv.FormatUint(uint64(specularNr), 10)
 			specularNr++
+			shader.SetBool("material.has_specular", true)
 		} else if name == "texture_normal" {
-			number = strconv.FormatUint(uint64(normalNr), 10)
 			normalNr++
 		} else if name == "texture_height" {
-			number = strconv.FormatUint(uint64(heightNr), 10)
 			heightNr++
+		} else {
+			utils.Logger().Println("Unsupported texture type: ", name)
 		}
 
-		shader.SetInt("material."+name+number, i)
+		shader.SetInt("material."+name, i)
+		shader.SetFloat("material.shininess", 32)
 		gl.BindTexture(gl.TEXTURE_2D, m.Textures[i].Id)
 	}
+
+	gl.ActiveTexture(gl.TEXTURE0 + uint32(i))
+	shader.SetInt("material.missing_texture", i)
+	gl.BindTexture(gl.TEXTURE_2D, shader.NoTexture)
 
 	if !shouldDraw {
 		return
@@ -126,10 +132,6 @@ func (m *Mesh) DrawSpecific(shader *shaders.Shader, drawTransparent bool) {
 		gl.BlendEquation(gl.FUNC_ADD)
 		// gl.DepthMask(false)
 	}
-
-	gl.ActiveTexture(gl.TEXTURE0 + uint32(i))
-	shader.SetInt("material.missing_texture", i)
-	gl.BindTexture(gl.TEXTURE_2D, shader.NoTexture)
 
 	gl.BindVertexArray(m.vao)
 	gl.DrawElements(gl.TRIANGLES, int32(len(m.Indices)), gl.UNSIGNED_INT, nil)

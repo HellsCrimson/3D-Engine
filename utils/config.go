@@ -13,6 +13,7 @@ type Config struct {
 	Width             int     `yaml:"width"`
 	Height            int     `yaml:"height"`
 	CameraSpeed       float32 `yaml:"cameraSpeed"`
+	Vsync             bool    `yaml:"vsync"`
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -31,4 +32,12 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return config, nil
+}
+
+func (c *Config) GetVsync() int {
+	if c.Vsync {
+		return 1
+	} else {
+		return 0
+	}
 }

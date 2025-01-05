@@ -36,8 +36,6 @@ func Load(name string, isTransparent *bool) (uint32, error) {
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, texture.Width, texture.Height, 0, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(texture.Data))
 	gl.GenerateMipmap(gl.TEXTURE_2D)
 
-	gl.BindTexture(gl.TEXTURE_2D, 0)
-
 	return textureId, nil
 }
 

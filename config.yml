@@ -4,3 +4,4 @@ fov: 45.0
 width: 1600
 height: 1100
 cameraSpeed: 5.0
+vsync: false
