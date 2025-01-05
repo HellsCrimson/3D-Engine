@@ -12,9 +12,9 @@ import (
 var lockContext = &sync.Mutex{}
 
 type Context struct {
-	DebugLevel          DebugLevel
-	Wireframe           bool
-	LastWireframeChange float64
+	DebugLevel DebugLevel
+	Wireframe  bool
+	FlashLight bool
 
 	ConfigPath string
 	ScenePath  string

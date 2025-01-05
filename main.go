@@ -33,6 +33,8 @@ var (
 	config *utils.Config
 
 	models []*object.Model
+
+	kh = camera.NewKeyHandler()
 )
 
 func init() {
@@ -125,6 +127,8 @@ func main() {
 	window.SetCursorPosCallback(cam.MouseCallback)
 	window.SetScrollCallback(cam.ScrollCallback)
 
+	kh.RegisterKeys(window, cam, &deltaTime)
+
 	const fixedUpdateRate = 50
 	fixedDeltaTime := time.Second / time.Duration(fixedUpdateRate)
 	ticker := time.NewTicker(fixedDeltaTime)
@@ -141,7 +145,7 @@ func main() {
 
 		fpsCounter(window)
 
-		processInput(window, cam)
+		processInput(window)
 
 		gl.ClearColor(0.0, 0.0, 0.0, 1.0)
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
@@ -186,16 +190,7 @@ func update(shader *shaders.Shader, cam *camera.Camera, models []*object.Model) 
 }
 
 func fixedUpdate(window *glfw.Window) {
-	if window.GetKey(glfw.KeyZ) == glfw.Press && glfw.GetTime()-utils.GetContext().LastWireframeChange >= 1 {
-		// Wireframe
-		if utils.GetContext().Wireframe {
-			gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
-		} else {
-			gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
-		}
-		utils.GetContext().Wireframe = !utils.GetContext().Wireframe
-		utils.GetContext().LastWireframeChange = glfw.GetTime()
-	}
+
 }
 
 func computeLight(shader *shaders.Shader, cam *camera.Camera) {
@@ -217,24 +212,32 @@ func computeLight(shader *shaders.Shader, cam *camera.Camera) {
 	// }
 
 	// Spot light
-	shader.SetVec3Val("spotLight.position", cam.CameraPos)
-	shader.SetVec3Val("spotLight.direction", cam.CameraFront)
-	shader.SetVec3("spotLight.ambient", 0.0, 0.0, 0.0)
-	shader.SetVec3("spotLight.diffuse", 1.0, 1.0, 1.0)
-	shader.SetVec3("spotLight.specular", 1.0, 1.0, 1.0)
-	shader.SetFloat("spotLight.constant", 1.0)
-	shader.SetFloat("spotLight.linear", 0.09)
-	shader.SetFloat("spotLight.quadratic", 0.032)
-	shader.SetFloat("spotLight.cutOff", float32(math.Cos(float64(mgl32.DegToRad(12.5)))))
-	shader.SetFloat("spotLight.outerCutOff", float32(math.Cos(float64(mgl32.DegToRad(15.0)))))
+	if utils.GetContext().FlashLight {
+		shader.SetVec3Val("spotLight.position", cam.CameraPos)
+		shader.SetVec3Val("spotLight.direction", cam.CameraFront)
+		shader.SetVec3("spotLight.ambient", 0.0, 0.0, 0.0)
+		shader.SetVec3("spotLight.diffuse", 1.0, 1.0, 1.0)
+		shader.SetVec3("spotLight.specular", 1.0, 1.0, 1.0)
+		shader.SetFloat("spotLight.constant", 1.0)
+		shader.SetFloat("spotLight.linear", 0.09)
+		shader.SetFloat("spotLight.quadratic", 0.032)
+		shader.SetFloat("spotLight.cutOff", float32(math.Cos(float64(mgl32.DegToRad(12.5)))))
+		shader.SetFloat("spotLight.outerCutOff", float32(math.Cos(float64(mgl32.DegToRad(15.0)))))
+		shader.SetBool("spotLight.isEnabled", true)
+	} else {
+		shader.SetBool("spotLight.isEnabled", false)
+	}
 }
 
-func processInput(window *glfw.Window, cam *camera.Camera) {
-	if window.GetKey(glfw.KeyEscape) == glfw.Press {
-		window.SetShouldClose(true)
+func processInput(window *glfw.Window) {
+	for i := glfw.KeySpace; i < glfw.KeyLast; i++ {
+		if window.GetKey(i) == glfw.Press {
+			kh.PressKey(i)
+			kh.IsPressed[i] = true
+		} else if window.GetKey(i) == glfw.Release {
+			kh.IsPressed[i] = false
+		}
 	}
-
-	cam.ProcessMovement(window, deltaTime)
 }
 
 func framebufferSizeCallback(window *glfw.Window, width, height int) {

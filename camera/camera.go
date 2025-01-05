@@ -48,34 +48,76 @@ func NewCamera(config *utils.Config) *Camera {
 	}
 }
 
-func (c *Camera) ProcessMovement(window *glfw.Window, deltaTime float32) {
+func (c *Camera) processForward(isRunning bool, deltaTime *float32) {
 	var cameraSpeed float32
-	if window.GetKey(glfw.KeyLeftShift) == glfw.Press {
+	if isRunning {
 		cameraSpeed = c.CameraSpeed * 2.0
 	} else {
 		cameraSpeed = c.CameraSpeed
 	}
 
-	curCameraSpeed := cameraSpeed * deltaTime
+	curCameraSpeed := cameraSpeed * *deltaTime
+	c.CameraPos = c.CameraPos.Add(c.CameraFront.Mul(curCameraSpeed))
+}
 
-	if window.GetKey(glfw.KeyW) == glfw.Press {
-		c.CameraPos = c.CameraPos.Add(c.CameraFront.Mul(curCameraSpeed))
+func (c *Camera) processLeft(isRunning bool, deltaTime *float32) {
+	var cameraSpeed float32
+	if isRunning {
+		cameraSpeed = c.CameraSpeed * 2.0
+	} else {
+		cameraSpeed = c.CameraSpeed
 	}
-	if window.GetKey(glfw.KeyS) == glfw.Press {
-		c.CameraPos = c.CameraPos.Sub(c.CameraFront.Mul(curCameraSpeed))
+
+	curCameraSpeed := cameraSpeed * *deltaTime
+	c.CameraPos = c.CameraPos.Sub(c.CameraFront.Cross(c.CameraUp).Mul(curCameraSpeed))
+}
+
+func (c *Camera) processBack(isRunning bool, deltaTime *float32) {
+	var cameraSpeed float32
+	if isRunning {
+		cameraSpeed = c.CameraSpeed * 2.0
+	} else {
+		cameraSpeed = c.CameraSpeed
 	}
-	if window.GetKey(glfw.KeyA) == glfw.Press {
-		c.CameraPos = c.CameraPos.Sub(c.CameraFront.Cross(c.CameraUp).Mul(curCameraSpeed))
+
+	curCameraSpeed := cameraSpeed * *deltaTime
+	c.CameraPos = c.CameraPos.Sub(c.CameraFront.Mul(curCameraSpeed))
+}
+
+func (c *Camera) processRight(isRunning bool, deltaTime *float32) {
+	var cameraSpeed float32
+	if isRunning {
+		cameraSpeed = c.CameraSpeed * 2.0
+	} else {
+		cameraSpeed = c.CameraSpeed
 	}
-	if window.GetKey(glfw.KeyD) == glfw.Press {
-		c.CameraPos = c.CameraPos.Add(c.CameraFront.Cross(c.CameraUp).Mul(curCameraSpeed))
+
+	curCameraSpeed := cameraSpeed * *deltaTime
+	c.CameraPos = c.CameraPos.Add(c.CameraFront.Cross(c.CameraUp).Mul(curCameraSpeed))
+}
+
+func (c *Camera) processUp(isRunning bool, deltaTime *float32) {
+	var cameraSpeed float32
+	if isRunning {
+		cameraSpeed = c.CameraSpeed * 2.0
+	} else {
+		cameraSpeed = c.CameraSpeed
 	}
-	if window.GetKey(glfw.KeySpace) == glfw.Press {
-		c.CameraPos = c.CameraPos.Add(c.CameraUp.Mul(curCameraSpeed))
+
+	curCameraSpeed := cameraSpeed * *deltaTime
+	c.CameraPos = c.CameraPos.Add(c.CameraUp.Mul(curCameraSpeed))
+}
+
+func (c *Camera) processDown(isRunning bool, deltaTime *float32) {
+	var cameraSpeed float32
+	if isRunning {
+		cameraSpeed = c.CameraSpeed * 2.0
+	} else {
+		cameraSpeed = c.CameraSpeed
 	}
-	if window.GetKey(glfw.KeyLeftControl) == glfw.Press {
-		c.CameraPos = c.CameraPos.Sub(c.CameraUp.Mul(curCameraSpeed))
-	}
+
+	curCameraSpeed := cameraSpeed * *deltaTime
+	c.CameraPos = c.CameraPos.Sub(c.CameraUp.Mul(curCameraSpeed))
 }
 
 func (c *Camera) MouseCallback(window *glfw.Window, xpos, ypos float64) {
