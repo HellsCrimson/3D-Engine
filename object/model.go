@@ -12,6 +12,8 @@ import (
 )
 
 type Model struct {
+	Id             uint32
+	Name           string
 	Meshes         []Mesh
 	Directory      string
 	TexturesLoaded []Texture

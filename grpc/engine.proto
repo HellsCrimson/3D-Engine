@@ -1,0 +1,51 @@
+syntax="proto3";
+
+package grpc;
+
+option go_package = "3d-engine/grpc";
+
+import "google/protobuf/empty.proto";
+
+service Engine {
+    rpc GetObjects(google.protobuf.Empty) returns (Objects);
+
+    rpc AddObject(Object) returns (google.protobuf.Empty);
+    rpc RemoveObject(Object) returns (google.protobuf.Empty);
+
+    rpc MoveObject(Object) returns (google.protobuf.Empty);
+    rpc RotateObject(Object) returns (google.protobuf.Empty);
+    rpc ScaleObject(Object) returns (google.protobuf.Empty);
+    rpc UpdateObject(Object) returns (google.protobuf.Empty);
+}
+
+message Objects {
+  repeated Object objects = 1;
+}
+
+message Object {
+  string name = 1;
+  uint32 id = 2;
+
+  Location location = 3;
+}
+
+message Location {
+  Vector3 position = 1;
+  Vector4 rotation = 2;
+  Vector3 scale = 3;
+}
+
+message Vector4 {
+  float x = 1;
+  float y = 2;
+  float z = 3;
+  float w = 4;
+}
+
+message Vector3 {
+  float x = 1;
+  float y = 2;
+  float z = 3;
+}
+
+

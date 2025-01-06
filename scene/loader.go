@@ -12,6 +12,7 @@ type Scene struct {
 }
 
 type Object struct {
+	Name          string  `yaml:"name"`
 	Path          string  `yaml:"path"`
 	OriginX       float32 `yaml:"originX"`
 	OriginY       float32 `yaml:"originY"`

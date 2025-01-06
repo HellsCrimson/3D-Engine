@@ -1,5 +1,6 @@
 objects:
   - path: testObjects/sponza/sponza.obj
+    name: sponza
     originX: 0.0
     originY: 0.0
     originZ: 0.0
@@ -11,6 +12,7 @@ objects:
     rotationY: 0.0
     rotationZ: 0.0
   - path: testObjects/inosuke-free-fire/inosuke.obj
+    name: inosuke
     originX: 0.0
     originY: 0.0
     originZ: 0.0
@@ -22,6 +24,7 @@ objects:
     rotationY: 0.0
     rotationZ: 0.0
   - path: testObjects/backpack/backpack.obj
+    name: backpack
     originX: 10.0
     originY: 2.0
     originZ: 0.0

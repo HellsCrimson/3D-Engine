@@ -55,6 +55,8 @@ func main() {
 		utils.Logger().Fatalln("Could not load scene:", err)
 	}
 
+	go StartRPCServer()
+
 	g_width = config.Width
 	g_height = config.Height
 
@@ -111,8 +113,9 @@ func main() {
 	// }
 	// defer lightSourceShader.Delete()
 
+	modelId := uint32(0)
 	for _, obj := range scene.Objects {
-		model := object.Model{}
+		model := object.Model{Id: modelId, Name: obj.Name}
 		model.LoadScene(obj.Path)
 
 		model.Coordinates = mgl32.Vec3{obj.OriginX, obj.OriginY, obj.OriginZ}
@@ -120,6 +123,7 @@ func main() {
 		model.Scale = mgl32.Vec3{obj.ScaleX, obj.ScaleY, obj.ScaleZ}
 
 		models = append(models, &model)
+		modelId++
 	}
 
 	cam := camera.NewCamera(config)
