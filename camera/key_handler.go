@@ -90,4 +90,17 @@ func (kh *KeyHandler) RegisterKeys(window *glfw.Window, cam *Camera, deltaTime *
 		}
 		return false
 	}
+
+	kh.KeyFunc[glfw.KeyC] = func() bool {
+		if glfw.GetTime()-kh.LastPress[glfw.KeyC] >= 1 {
+			if utils.GetContext().CaptureCursor {
+				window.SetInputMode(glfw.CursorMode, glfw.CursorNormal)
+			} else {
+				window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
+			}
+			utils.GetContext().CaptureCursor = !utils.GetContext().CaptureCursor
+			return true
+		}
+		return false
+	}
 }

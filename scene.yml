@@ -13,7 +13,7 @@ objects:
     rotationZ: 0.0
   - path: testObjects/inosuke-free-fire/inosuke.obj
     name: inosuke
-    originX: 0.0
+    originX: 10.1
     originY: 0.0
     originZ: 0.0
     scaleX: 2.0
@@ -26,12 +26,12 @@ objects:
   - path: testObjects/backpack/backpack.obj
     name: backpack
     originX: 10.0
-    originY: 2.0
-    originZ: 0.0
+    originY: 7.3
+    originZ: -2.2
     scaleX: 1.0
     scaleY: 1.0
     scaleZ: 1.0
-    rotationAngle: 0.0
+    rotationAngle: 180.0
     rotationX: 0.0
-    rotationY: 0.0
+    rotationY: 1.0
     rotationZ: 0.0

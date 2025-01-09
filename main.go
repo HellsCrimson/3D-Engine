@@ -94,6 +94,7 @@ func main() {
 	window.SetFramebufferSizeCallback(framebufferSizeCallback)
 
 	window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
+	utils.GetContext().CaptureCursor = true
 
 	lightingShader, err := shaders.CreateShaderProgram("lighting.vert", "lighting.frag")
 	if err != nil {

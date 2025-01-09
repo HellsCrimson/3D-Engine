@@ -21,7 +21,6 @@ require (
 
 require (
 	github.com/bloeys/gglm v0.50.0 // indirect
-	github.com/dblezek/tga v0.0.0-20150626111426-80720cbc1017
 	github.com/jessevdk/go-flags v1.6.1
 	gopkg.in/yaml.v3 v3.0.1
 	neilpa.me/go-stbi v1.1.0
