@@ -87,6 +87,7 @@ func (m *Mesh) DrawSpecific(shader *shaders.Shader, drawTransparent bool) {
 	shader.SetBool("material.has_diffuse", false)
 	shader.SetBool("material.has_specular", false)
 	shader.SetBool("material.has_emission", false)
+	shader.SetBool("material.has_reflection", false)
 
 	shouldDraw := len(m.Textures) == 0 && !drawTransparent
 	i := int32(0)

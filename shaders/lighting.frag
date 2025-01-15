@@ -15,6 +15,7 @@ struct Material {
     bool has_diffuse;
     bool has_specular;
     bool has_emission;
+    bool has_reflection;
 
     sampler2D missing_texture;
 };
@@ -59,9 +60,12 @@ struct SpotLight {
 uniform vec3 viewPos;
 uniform Material material;
 
-#define NR_POINT_LIGHT 4
+uniform samplerCube skybox;
+
+#define MAX_POINT_LIGHT 4
+uniform int nb_point_light;
 uniform DirLight dirLight;
-uniform PointLight pointLights[NR_POINT_LIGHT];
+uniform PointLight pointLights[MAX_POINT_LIGHT];
 uniform SpotLight spotLight;
 
 vec3 CalcDirLight(DirLight light, vec3 normal, vec3 viewDir);
@@ -75,11 +79,19 @@ void main()
     
     vec3 res = CalcDirLight(dirLight, norm, viewDir);
 
-    // for (int i = 0; i < NR_POINT_LIGHT; i++)
-    // {
-    //     res += CalcPointLight(pointLights[i], norm, FragPos, viewDir);
-    // }
+    for (int i = 0; i < nb_point_light; i++)
+    {
+        res += CalcPointLight(pointLights[i], norm, FragPos, viewDir);
+    }
     res += CalcSpotLight(spotLight, norm, FragPos, viewDir);
+
+    // Skybox reflection
+    if (material.has_reflection) {
+        vec3 reflectDir = reflect(-viewDir, norm);
+        vec3 skyboxReflection = texture(skybox, reflectDir).rgb;
+        float reflectFactor = 0.5;
+        res = mix(res, skyboxReflection, reflectFactor);
+    }
 
     if (material.has_emission) {
         res += vec3(texture(material.emission, TexCoords));

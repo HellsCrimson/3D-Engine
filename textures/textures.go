@@ -39,6 +39,43 @@ func Load(name string, isTransparent *bool) (uint32, error) {
 	return textureId, nil
 }
 
+func LoadCubemap(path string) (uint32, error) {
+	var textureId uint32
+	gl.GenTextures(1, &textureId)
+	gl.BindTexture(gl.TEXTURE_CUBE_MAP, textureId)
+
+	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
+
+	var face_name string
+	for i := uint32(0); i < 6; i++ {
+		switch i {
+		case 0:
+			face_name = "right"
+		case 1:
+			face_name = "left"
+		case 2:
+			face_name = "top"
+		case 3:
+			face_name = "bottom"
+		case 4:
+			face_name = "front"
+		case 5:
+			face_name = "back"
+		}
+		texture, err := getImage(path + "/" + face_name + ".jpg")
+		if err != nil {
+			return 0, err
+		}
+		gl.TexImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X+i, 0, gl.RGBA, texture.Width, texture.Height, 0, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(texture.Data))
+	}
+
+	return textureId, nil
+}
+
 func getImage(name string) (*Texture, error) {
 	img, err := stbi.Load(name)
 	if err != nil {

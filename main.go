@@ -108,6 +108,15 @@ func main() {
 		utils.Logger().Fatalln("Could not load missing texture", err)
 	}
 
+	skybox := object.CreateSkybox("./testObjects/skybox")
+	skybox.LoadCubemap()
+	skybox.Shader, err = shaders.CreateShaderProgram("skybox.vert", "skybox.frag")
+	if err != nil {
+		utils.Logger().Fatalln("Could not create skybox shader:", err)
+	}
+	defer skybox.Shader.Delete()
+	skybox.Shader.SetInt("skybox", int32(skybox.SkyboxTextureUnit))
+
 	// lightSourceShader, err := shaders.CreateShaderProgram("lighting.vert", "lightSource.frag")
 	// if err != nil {
 	// 	log.Fatalln("Could not create light shader:", err)
@@ -161,14 +170,14 @@ func main() {
 		default:
 		}
 
-		update(lightingShader, cam, models)
+		update(lightingShader, cam, models, skybox)
 
 		window.SwapBuffers()
 		glfw.PollEvents()
 	}
 }
 
-func update(shader *shaders.Shader, cam *camera.Camera, models []*object.Model) {
+func update(shader *shaders.Shader, cam *camera.Camera, models []*object.Model, skybox *object.Skybox) {
 	// Lighting
 	shader.Use()
 	shader.SetVec3Val("viewPos", cam.CameraPos)
@@ -184,6 +193,8 @@ func update(shader *shaders.Shader, cam *camera.Camera, models []*object.Model) 
 		return cam.CameraPos.Sub(models[i].Coordinates).LenSqr() > cam.CameraPos.Sub(models[j].Coordinates).LenSqr()
 	})
 
+	shader.SetInt("skybox", int32(skybox.SkyboxTextureUnit))
+
 	for _, model := range models {
 		modelVec := mgl32.Ident4()
 		modelVec = modelVec.Mul4(mgl32.Translate3D(model.Coordinates.X(), model.Coordinates.Y(), model.Coordinates.Z()))
@@ -192,6 +203,8 @@ func update(shader *shaders.Shader, cam *camera.Camera, models []*object.Model) 
 		shader.SetMat4("model", modelVec)
 		model.Draw(shader)
 	}
+
+	skybox.RenderSkybox(cam.ComputeView().Mat3().Mat4(), cam.ComputeProjection(g_width, g_height))
 }
 
 func fixedUpdate(window *glfw.Window) {
@@ -205,6 +218,7 @@ func computeLight(shader *shaders.Shader, cam *camera.Camera) {
 	shader.SetVec3("dirLight.diffuse", 0.5, 0.5, 0.5)
 	shader.SetVec3("dirLight.specular", 1.0, 1.0, 1.0)
 
+	shader.SetInt("nb_point_light", 0)
 	// Point light
 	// for i, pointLightPos := range pointLightPositions {
 	// 	lightingShader.SetVec3Val(fmt.Sprintf("pointLights[%d].position", i), pointLightPos)
