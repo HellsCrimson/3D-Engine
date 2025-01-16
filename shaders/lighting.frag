@@ -87,10 +87,14 @@ void main()
 
     // Skybox reflection
     if (material.has_reflection) {
-        vec3 reflectDir = reflect(-viewDir, norm);
-        vec3 skyboxReflection = texture(skybox, reflectDir).rgb;
         float reflectFactor = 0.5;
-        res = mix(res, skyboxReflection, reflectFactor);
+        float refractFactor = 1.0 / 1.50;
+
+        vec3 reflectDir = reflect(-viewDir, norm);
+        vec3 refractDir = refract(reflectDir, norm, refractFactor);
+        vec3 skyboxRefraction = texture(skybox, refractDir).rgb;
+        
+        res = mix(res, skyboxRefraction, reflectFactor);
     }
 
     if (material.has_emission) {
