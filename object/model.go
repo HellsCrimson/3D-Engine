@@ -4,6 +4,7 @@ import (
 	"3d-engine/shaders"
 	tex "3d-engine/textures"
 	"3d-engine/utils"
+	"fmt"
 	"log"
 	"path/filepath"
 
@@ -29,36 +30,46 @@ func (m *Model) Draw(shader *shaders.Shader) {
 	}
 }
 
-func (m *Model) LoadScene(path string) {
+func (m *Model) LoadScene(path string) error {
 	if utils.GetContext().DebugLevel > utils.NoDebug {
 		log.Default().Println("Importing file: ", path)
 	}
 	scene, release, err := asig.ImportFile(path, asig.PostProcessTriangulate|asig.PostProcessJoinIdenticalVertices|asig.PostProcessOptimizeMeshes|asig.PostProcessFlipUVs|asig.PostProcessSplitLargeMeshes|asig.PostProcessGenNormals)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("failed to import model %q: %w", path, err)
 	}
 	defer release()
 
 	m.Directory = filepath.Dir(path)
 
-	m.processNode(scene.RootNode, scene)
+	if err := m.processNode(scene.RootNode, scene); err != nil {
+		return err
+	}
+	return nil
 }
 
-func (m *Model) processNode(node *asig.Node, scene *asig.Scene) {
+func (m *Model) processNode(node *asig.Node, scene *asig.Scene) error {
 	if utils.GetContext().DebugLevel > utils.NoDebug {
 		log.Default().Println("Processing node: ", node.Name)
 	}
 	for i := 0; i < len(node.MeshIndicies); i++ {
 		mesh := scene.Meshes[node.MeshIndicies[i]]
-		m.Meshes = append(m.Meshes, *m.processMesh(mesh, scene))
+		processedMesh, err := m.processMesh(mesh, scene)
+		if err != nil {
+			return err
+		}
+		m.Meshes = append(m.Meshes, *processedMesh)
 	}
 
 	for i := 0; i < len(node.Children); i++ {
-		m.processNode(node.Children[i], scene)
+		if err := m.processNode(node.Children[i], scene); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func (m *Model) processMesh(mesh *asig.Mesh, scene *asig.Scene) *Mesh {
+func (m *Model) processMesh(mesh *asig.Mesh, scene *asig.Scene) (*Mesh, error) {
 	var vertices []Vertex
 	var indices []uint32
 	var textures []Texture
@@ -90,30 +101,41 @@ func (m *Model) processMesh(mesh *asig.Mesh, scene *asig.Scene) *Mesh {
 	if mesh.MaterialIndex >= 0 {
 		material := scene.Materials[mesh.MaterialIndex]
 
-		var diffuseMaps []Texture = m.loadMaterialTextures(material, asig.TextureTypeDiffuse, "texture_diffuse")
+		diffuseMaps, err := m.loadMaterialTextures(material, asig.TextureTypeDiffuse, "texture_diffuse")
+		if err != nil {
+			return nil, err
+		}
 		textures = append(textures, diffuseMaps...)
 
-		var specularMaps []Texture = m.loadMaterialTextures(material, asig.TextureTypeSpecular, "texture_specular")
+		specularMaps, err := m.loadMaterialTextures(material, asig.TextureTypeSpecular, "texture_specular")
+		if err != nil {
+			return nil, err
+		}
 		textures = append(textures, specularMaps...)
 
-		var normalMaps []Texture = m.loadMaterialTextures(material, asig.TextureTypeNormal, "texture_normal")
+		normalMaps, err := m.loadMaterialTextures(material, asig.TextureTypeNormal, "texture_normal")
+		if err != nil {
+			return nil, err
+		}
 		textures = append(textures, normalMaps...)
 
-		var heightMaps []Texture = m.loadMaterialTextures(material, asig.TextureTypeHeight, "texture_height")
+		heightMaps, err := m.loadMaterialTextures(material, asig.TextureTypeHeight, "texture_height")
+		if err != nil {
+			return nil, err
+		}
 		textures = append(textures, heightMaps...)
 	}
 
-	return CreateMesh(vertices, indices, textures)
+	return CreateMesh(vertices, indices, textures), nil
 }
 
-func (m *Model) loadMaterialTextures(material *asig.Material, textureType asig.TextureType, typeName string) []Texture {
+func (m *Model) loadMaterialTextures(material *asig.Material, textureType asig.TextureType, typeName string) ([]Texture, error) {
 	var textures []Texture
 
 	for i := 0; i < asig.GetMaterialTextureCount(material, textureType); i++ {
 		aTexture, err := asig.GetMaterialTexture(material, textureType, uint(i))
 		if err != nil {
-			utils.Logger().Println("Error: ", err) // TODO: handle error correctly
-			return nil
+			return nil, fmt.Errorf("failed to get material texture: %w", err)
 		}
 		skip := false
 
@@ -131,7 +153,7 @@ func (m *Model) loadMaterialTextures(material *asig.Material, textureType asig.T
 			isTransparent := false
 			textureId, err := textureFromFile(aTexture.Path, m.Directory, &isTransparent)
 			if err != nil {
-				panic(err) // TODO: handle better
+				return nil, fmt.Errorf("failed to load texture %q: %w", aTexture.Path, err)
 			}
 
 			texture.Id = textureId
@@ -144,7 +166,7 @@ func (m *Model) loadMaterialTextures(material *asig.Material, textureType asig.T
 		}
 	}
 
-	return textures
+	return textures, nil
 }
 
 func textureFromFile(path, directory string, isTransparent *bool) (uint32, error) {

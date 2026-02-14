@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/go-gl/gl/v4.6-core/gl"
@@ -32,7 +33,8 @@ var (
 
 	config *utils.Config
 
-	models []*object.Model
+	models   []*object.Model
+	modelsMu sync.RWMutex
 
 	kh = camera.NewKeyHandler()
 )
@@ -54,8 +56,6 @@ func main() {
 	if err != nil {
 		utils.Logger().Fatalln("Could not load scene:", err)
 	}
-
-	go StartRPCServer()
 
 	g_width = config.Width
 	g_height = config.Height
@@ -124,9 +124,13 @@ func main() {
 	// defer lightSourceShader.Delete()
 
 	modelId := uint32(0)
+	modelsMu.Lock()
 	for _, obj := range scene.Objects {
 		model := object.Model{Id: modelId, Name: obj.Name}
-		model.LoadScene(obj.Path)
+		if err := model.LoadScene(obj.Path); err != nil {
+			modelsMu.Unlock()
+			utils.Logger().Fatalln("Could not load model:", err)
+		}
 
 		model.Coordinates = mgl32.Vec3{obj.OriginX, obj.OriginY, obj.OriginZ}
 		model.Rotation = mgl32.Vec4{obj.RotationX, obj.RotationY, obj.RotationZ, obj.RotationAngle}
@@ -135,6 +139,9 @@ func main() {
 		models = append(models, &model)
 		modelId++
 	}
+	modelsMu.Unlock()
+
+	go StartRPCServer()
 
 	cam := camera.NewCamera(config)
 
@@ -189,6 +196,7 @@ func update(shader *shaders.Shader, cam *camera.Camera, models []*object.Model, 
 
 	computeLight(shader, cam)
 
+	modelsMu.Lock()
 	sort.Slice(models, func(i, j int) bool {
 		return cam.CameraPos.Sub(models[i].Coordinates).LenSqr() > cam.CameraPos.Sub(models[j].Coordinates).LenSqr()
 	})
@@ -203,6 +211,7 @@ func update(shader *shaders.Shader, cam *camera.Camera, models []*object.Model, 
 		shader.SetMat4("model", modelVec)
 		model.Draw(shader)
 	}
+	modelsMu.Unlock()
 
 	skybox.RenderSkybox(cam.ComputeView().Mat3().Mat4(), cam.ComputeProjection(g_width, g_height))
 }

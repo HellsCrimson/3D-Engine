@@ -3,6 +3,7 @@ package shaders
 import (
 	"3d-engine/utils"
 	"embed"
+	"fmt"
 	"strings"
 
 	"github.com/go-gl/gl/v4.6-core/gl"
@@ -25,8 +26,15 @@ func (s *Shader) Delete() {
 }
 
 func CreateShaderProgram(nameVertex, nameFragment string) (*Shader, error) {
-	vertexShader := compileShader(nameVertex, gl.VERTEX_SHADER)
-	fragmentShader := compileShader(nameFragment, gl.FRAGMENT_SHADER)
+	vertexShader, err := compileShader(nameVertex, gl.VERTEX_SHADER)
+	if err != nil {
+		return nil, err
+	}
+	fragmentShader, err := compileShader(nameFragment, gl.FRAGMENT_SHADER)
+	if err != nil {
+		gl.DeleteShader(vertexShader)
+		return nil, err
+	}
 
 	defer gl.DeleteShader(vertexShader)
 	defer gl.DeleteShader(fragmentShader)
@@ -47,10 +55,10 @@ func CreateShaderProgram(nameVertex, nameFragment string) (*Shader, error) {
 	return &Shader{ProgramId: shaderProgram}, nil
 }
 
-func compileShader(name string, shaderType uint32) uint32 {
+func compileShader(name string, shaderType uint32) (uint32, error) {
 	shaderSourceStr, err := getShader(name)
 	if err != nil {
-		utils.Logger().Fatalln(err)
+		return 0, err
 	}
 
 	shaderSource, freeShader := gl.Strs(shaderSourceStr + "\x00")
@@ -65,10 +73,11 @@ func compileShader(name string, shaderType uint32) uint32 {
 	if success == gl.FALSE {
 		infoLog := make([]byte, 512)
 		gl.GetShaderInfoLog(shader, 512, nil, &infoLog[0])
-		utils.Logger().Fatalln("ERROR::SHADER::"+strings.ToUpper(name)+"::COMPILATION_FAILED", string(infoLog))
+		gl.DeleteShader(shader)
+		return 0, fmt.Errorf("ERROR::SHADER::%s::COMPILATION_FAILED %s", strings.ToUpper(name), string(infoLog))
 	}
 
-	return shader
+	return shader, nil
 }
 
 func getShader(name string) (string, error) {

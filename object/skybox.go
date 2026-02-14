@@ -56,7 +56,7 @@ func (s *Skybox) RenderSkybox(view mgl32.Mat4, proj mgl32.Mat4) {
 	gl.BindVertexArray(s.vao)
 	gl.ActiveTexture(gl.TEXTURE0 + s.SkyboxTextureUnit)
 	gl.BindTexture(gl.TEXTURE_CUBE_MAP, s.TextureId)
-	gl.DrawArrays(gl.TRIANGLES, 0, int32(len(s.skyboxVertices)))
+	gl.DrawArrays(gl.TRIANGLES, 0, int32(len(s.skyboxVertices)/3))
 	gl.BindVertexArray(0)
 	gl.DepthFunc(gl.LESS)
 }
