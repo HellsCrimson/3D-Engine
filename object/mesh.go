@@ -26,6 +26,9 @@ type Mesh struct {
 	Indices  []uint32
 	Textures []Texture
 
+	localCenter     mgl32.Vec3
+	hasTransparency bool
+
 	vao uint32
 	vbo uint32
 	ebo uint32
@@ -37,8 +40,29 @@ func CreateMesh(vertices []Vertex, indices []uint32, textures []Texture) *Mesh {
 		Indices:  indices,
 		Textures: textures,
 	}
+	mesh.computeMetadata()
 	mesh.setupMesh()
 	return &mesh
+}
+
+func (m *Mesh) computeMetadata() {
+	if len(m.Vertices) == 0 {
+		m.localCenter = mgl32.Vec3{0, 0, 0}
+	} else {
+		sum := mgl32.Vec3{0, 0, 0}
+		for _, v := range m.Vertices {
+			sum = sum.Add(v.Position)
+		}
+		inv := float32(1.0 / float32(len(m.Vertices)))
+		m.localCenter = sum.Mul(inv)
+	}
+
+	for _, tex := range m.Textures {
+		if tex.HasTransparency {
+			m.hasTransparency = true
+			break
+		}
+	}
 }
 
 func (m *Mesh) setupMesh() {
@@ -77,11 +101,23 @@ func (m *Mesh) setupMesh() {
 }
 
 func (m *Mesh) Draw(shader *shaders.Shader) {
-	m.DrawSpecific(shader, false)
-	m.DrawSpecific(shader, true)
+	m.DrawPass(shader, m.hasTransparency)
 }
 
-func (m *Mesh) DrawSpecific(shader *shaders.Shader, drawTransparent bool) {
+func (m *Mesh) IsTransparent() bool {
+	return m.hasTransparency
+}
+
+func (m *Mesh) WorldCenter(modelMat mgl32.Mat4) mgl32.Vec3 {
+	world := modelMat.Mul4x1(mgl32.Vec4{m.localCenter.X(), m.localCenter.Y(), m.localCenter.Z(), 1.0})
+	return world.Vec3()
+}
+
+func (m *Mesh) DrawPass(shader *shaders.Shader, drawTransparent bool) {
+	if drawTransparent != m.hasTransparency {
+		return
+	}
+
 	var diffuseNr, specularNr, normalNr, heightNr uint32 = 1, 1, 1, 1
 
 	shader.SetBool("material.has_diffuse", false)
@@ -89,13 +125,8 @@ func (m *Mesh) DrawSpecific(shader *shaders.Shader, drawTransparent bool) {
 	shader.SetBool("material.has_emission", false)
 	shader.SetBool("material.has_reflection", false)
 
-	shouldDraw := len(m.Textures) == 0 && !drawTransparent
 	i := int32(0)
 	for ; i < int32(len(m.Textures)); i++ {
-		if m.Textures[i].HasTransparency == drawTransparent {
-			shouldDraw = true
-		}
-
 		gl.ActiveTexture(gl.TEXTURE0 + uint32(i))
 
 		name := m.Textures[i].Type
@@ -122,10 +153,6 @@ func (m *Mesh) DrawSpecific(shader *shaders.Shader, drawTransparent bool) {
 	gl.ActiveTexture(gl.TEXTURE0 + uint32(i))
 	shader.SetInt("material.missing_texture", i)
 	gl.BindTexture(gl.TEXTURE_2D, shader.NoTexture)
-
-	if !shouldDraw {
-		return
-	}
 
 	if drawTransparent {
 		gl.Enable(gl.BLEND)

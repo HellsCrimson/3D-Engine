@@ -185,6 +185,12 @@ func main() {
 }
 
 func update(shader *shaders.Shader, cam *camera.Camera, models []*object.Model, skybox *object.Skybox) {
+	type renderItem struct {
+		mesh     *object.Mesh
+		modelMat mgl32.Mat4
+		distance float32
+	}
+
 	// Lighting
 	shader.Use()
 	shader.SetVec3Val("viewPos", cam.CameraPos)
@@ -196,22 +202,49 @@ func update(shader *shaders.Shader, cam *camera.Camera, models []*object.Model, 
 
 	computeLight(shader, cam)
 
-	modelsMu.Lock()
-	sort.Slice(models, func(i, j int) bool {
-		return cam.CameraPos.Sub(models[i].Coordinates).LenSqr() > cam.CameraPos.Sub(models[j].Coordinates).LenSqr()
-	})
-
 	shader.SetInt("skybox", int32(skybox.SkyboxTextureUnit))
 
+	opaqueItems := make([]renderItem, 0)
+	transparentItems := make([]renderItem, 0)
+
+	modelsMu.RLock()
 	for _, model := range models {
 		modelVec := mgl32.Ident4()
 		modelVec = modelVec.Mul4(mgl32.Translate3D(model.Coordinates.X(), model.Coordinates.Y(), model.Coordinates.Z()))
 		modelVec = modelVec.Mul4(mgl32.HomogRotate3D(mgl32.DegToRad(model.Rotation.W()), model.Rotation.Vec3()))
 		modelVec = modelVec.Mul4(mgl32.Scale3D(model.Scale.X(), model.Scale.Y(), model.Scale.Z()))
-		shader.SetMat4("model", modelVec)
-		model.Draw(shader)
+
+		for i := range model.Meshes {
+			mesh := &model.Meshes[i]
+			if mesh.IsTransparent() {
+				dist := cam.CameraPos.Sub(mesh.WorldCenter(modelVec)).LenSqr()
+				transparentItems = append(transparentItems, renderItem{
+					mesh:     mesh,
+					modelMat: modelVec,
+					distance: dist,
+				})
+				continue
+			}
+			opaqueItems = append(opaqueItems, renderItem{
+				mesh:     mesh,
+				modelMat: modelVec,
+			})
+		}
 	}
-	modelsMu.Unlock()
+	modelsMu.RUnlock()
+
+	for _, item := range opaqueItems {
+		shader.SetMat4("model", item.modelMat)
+		item.mesh.DrawPass(shader, false)
+	}
+
+	sort.Slice(transparentItems, func(i, j int) bool {
+		return transparentItems[i].distance > transparentItems[j].distance
+	})
+	for _, item := range transparentItems {
+		shader.SetMat4("model", item.modelMat)
+		item.mesh.DrawPass(shader, true)
+	}
 
 	skybox.RenderSkybox(cam.ComputeView().Mat3().Mat4(), cam.ComputeProjection(g_width, g_height))
 }
