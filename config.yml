@@ -7,4 +7,5 @@ cameraSpeed: 5.0
 vsync: false
 defaultSceneMode: default
 sceneModes:
-  default: ./scenes/sponza.yml
+  default: ./scenes/sponza/sponza.yml
+  flat: scenes/plane/scene_flat.yml

@@ -1,0 +1,14 @@
+objects:
+  - path: scenes/sponza/sponza.obj
+    name: sponza
+    isStatic: true
+    originX: 0.0
+    originY: 0.0
+    originZ: 0.0
+    scaleX: 0.05
+    scaleY: 0.05
+    scaleZ: 0.05
+    rotationAngle: 0.0
+    rotationX: 0.0
+    rotationY: 0.0
+    rotationZ: 0.0
