@@ -7,13 +7,15 @@ import (
 )
 
 type Config struct {
-	RenderDistanceMin float32 `yaml:"renderDistanceMin"`
-	RenderDistanceMax float32 `yaml:"renderDistanceMax"`
-	Fov               float32 `yaml:"fov"`
-	Width             int     `yaml:"width"`
-	Height            int     `yaml:"height"`
-	CameraSpeed       float32 `yaml:"cameraSpeed"`
-	Vsync             bool    `yaml:"vsync"`
+	RenderDistanceMin float32           `yaml:"renderDistanceMin"`
+	RenderDistanceMax float32           `yaml:"renderDistanceMax"`
+	Fov               float32           `yaml:"fov"`
+	Width             int               `yaml:"width"`
+	Height            int               `yaml:"height"`
+	CameraSpeed       float32           `yaml:"cameraSpeed"`
+	Vsync             bool              `yaml:"vsync"`
+	DefaultSceneMode  string            `yaml:"defaultSceneMode"`
+	SceneModes        map[string]string `yaml:"sceneModes"`
 }
 
 func LoadConfig(path string) (*Config, error) {

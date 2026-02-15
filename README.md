@@ -16,6 +16,15 @@ go run main.go
 
 You will need to adjust the scene.yml to add your own models
 
+## Scene Modes
+
+Configure named scene modes in `config.yml`:
+
+- `defaultSceneMode`: mode loaded at startup (if present)
+- `sceneModes`: map of mode name to scene YAML path
+
+You can switch scene modes at runtime from the UI (Get Scene Modes -> Load Selected Scene Mode).
+
 ## Controls
 
 - `G`: toggle gravity on/off

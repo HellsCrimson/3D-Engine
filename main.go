@@ -3,7 +3,6 @@ package main
 import (
 	"3d-engine/camera"
 	"3d-engine/object"
-	"3d-engine/scene"
 	"3d-engine/shaders"
 	"3d-engine/textures"
 	"3d-engine/utils"
@@ -35,6 +34,7 @@ var (
 
 	models   []*object.Model
 	modelsMu sync.RWMutex
+	sceneMgr *SceneManager
 
 	kh = camera.NewKeyHandler()
 
@@ -129,11 +129,7 @@ func main() {
 	if err != nil {
 		utils.Logger().Fatalln("Could not load config:", err)
 	}
-
-	scene, err := scene.Load(utils.GetContext().ScenePath)
-	if err != nil {
-		utils.Logger().Fatalln("Could not load scene:", err)
-	}
+	sceneMgr = NewSceneManager(config, utils.GetContext().ScenePath)
 
 	g_width = config.Width
 	g_height = config.Height
@@ -212,28 +208,13 @@ func main() {
 	// }
 	// defer lightSourceShader.Delete()
 
-	modelId := uint32(0)
-	modelsMu.Lock()
-	for _, obj := range scene.Objects {
-		model := object.Model{Id: modelId, Name: obj.Name}
-		if err := model.LoadScene(obj.Path); err != nil {
-			modelsMu.Unlock()
-			utils.Logger().Fatalln("Could not load model:", err)
-		}
-
-		model.Coordinates = mgl32.Vec3{obj.OriginX, obj.OriginY, obj.OriginZ}
-		model.Rotation = mgl32.Vec4{obj.RotationX, obj.RotationY, obj.RotationZ, obj.RotationAngle}
-		model.Scale = mgl32.Vec3{obj.ScaleX, obj.ScaleY, obj.ScaleZ}
-		model.IsStatic = obj.IsStatic
-
-		models = append(models, &model)
-		modelId++
+	cam := camera.NewCamera(config)
+	if err := sceneMgr.LoadScene(sceneMgr.ResolveInitialScenePath()); err != nil {
+		utils.Logger().Fatalln("Could not load scene:", err)
 	}
-	modelsMu.Unlock()
+	resetDynamicState(cam)
 
 	go StartRPCServer()
-
-	cam := camera.NewCamera(config)
 
 	window.SetCursorPosCallback(cam.MouseCallback)
 	window.SetScrollCallback(cam.ScrollCallback)
@@ -260,6 +241,14 @@ func main() {
 
 		gl.ClearColor(0.0, 0.0, 0.0, 1.0)
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+
+		changed, err := sceneMgr.ApplyPendingSceneChange()
+		if err != nil {
+			utils.Logger().Printf("Failed to switch scene: %v", err)
+		} else if changed {
+			utils.Logger().Printf("Switched scene to %s", sceneMgr.CurrentScenePath())
+			resetDynamicState(cam)
+		}
 
 		select {
 		case <-ticker.C:
@@ -597,5 +586,14 @@ func fpsCounter(window *glfw.Window) {
 		window.SetTitle("3D-Engine - FPS: " + strconv.FormatFloat(fps, 'f', 2, 64))
 		nbFrames = 0
 		lastFrameCounter = float32(glfw.GetTime())
+	}
+}
+
+func resetDynamicState(cam *camera.Camera) {
+	playerVelocity = mgl32.Vec3{0, 0, 0}
+	playerGrounded = false
+	lastJumpTime = 0
+	if cam != nil {
+		cam.CameraPos = mgl32.Vec3{0.0, 0.0, 3.0}
 	}
 }

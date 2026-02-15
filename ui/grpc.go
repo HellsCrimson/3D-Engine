@@ -41,6 +41,59 @@ func updateObject(obj *pb.Object) {
 	}
 }
 
+func loadScene(scenePath string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := streamRequest(ctx, &pb.EngineRequest{
+		Operation: pb.Operation_OPERATION_LOAD_SCENE,
+		Body: &pb.EngineRequest_Scene{
+			Scene: &pb.SceneRef{
+				Path: scenePath,
+			},
+		},
+	})
+	if err != nil {
+		log.Fatalf("client load scene failed: %v", err)
+	}
+}
+
+func getSceneModes() {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	resp, err := streamRequest(ctx, &pb.EngineRequest{
+		Operation: pb.Operation_OPERATION_GET_SCENE_MODES,
+		Body: &pb.EngineRequest_Empty{
+			Empty: &emptypb.Empty{},
+		},
+	})
+	if err != nil {
+		log.Fatalf("client get scene modes failed: %v", err)
+	}
+
+	sceneModes = resp.GetSceneModes().GetModes()
+	currentSceneMode = resp.GetSceneModes().GetCurrentMode()
+	currentScenePath = resp.GetSceneModes().GetCurrentScenePath()
+}
+
+func loadSceneMode(mode string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := streamRequest(ctx, &pb.EngineRequest{
+		Operation: pb.Operation_OPERATION_LOAD_SCENE_MODE,
+		Body: &pb.EngineRequest_SceneMode{
+			SceneMode: &pb.SceneModeRef{
+				Mode: mode,
+			},
+		},
+	})
+	if err != nil {
+		log.Fatalf("client load scene mode failed: %v", err)
+	}
+}
+
 func streamRequest(ctx context.Context, req *pb.EngineRequest) (*pb.EngineResponse, error) {
 	stream, err := client.Stream(ctx)
 	if err != nil {

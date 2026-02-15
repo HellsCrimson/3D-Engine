@@ -26,6 +26,10 @@ var (
 	objects             []*pb.Object
 	selectedObjectIndex int
 	autoUpdate          bool = false
+	sceneModes          []*pb.SceneMode
+	selectedSceneMode   int
+	currentSceneMode    string
+	currentScenePath    string
 )
 
 func init() {
@@ -67,6 +71,48 @@ func Loop() {
 
 	if imgui.Button("Get Objects") {
 		getObjects()
+	}
+	imgui.SameLine()
+	if imgui.Button("Get Scene Modes") {
+		getSceneModes()
+	}
+
+	if len(sceneModes) > 0 {
+		imgui.Text(fmt.Sprintf("Current Scene Mode: %s", currentSceneMode))
+		imgui.Text(fmt.Sprintf("Current Scene Path: %s", currentScenePath))
+		if selectedSceneMode >= len(sceneModes) {
+			selectedSceneMode = 0
+		}
+
+		imgui.BeginTable("Scene Modes", 3)
+		imgui.TableSetupColumnV("Mode", imgui.TableColumnFlagsNoHide|imgui.TableColumnFlagsWidthFixed, 160, 0)
+		imgui.TableSetupColumnV("Path", imgui.TableColumnFlagsWidthStretch, 0, 0)
+		imgui.TableSetupColumnV("Action", imgui.TableColumnFlagsWidthFixed, 120, 0)
+		imgui.TableHeadersRow()
+
+		for i, mode := range sceneModes {
+			imgui.PushIDStr(fmt.Sprintf("scene-mode-%d", i))
+			imgui.TableNextColumn()
+			imgui.Text(mode.Name)
+			imgui.TableNextColumn()
+			imgui.Text(mode.Path)
+			imgui.TableNextColumn()
+			if imgui.Button("Select") {
+				selectedSceneMode = i
+			}
+			imgui.PopID()
+		}
+
+		imgui.EndTable()
+
+		if len(sceneModes) > 0 {
+			imgui.Text(fmt.Sprintf("Selected Mode: %s", sceneModes[selectedSceneMode].Name))
+			if imgui.Button("Load Selected Scene Mode") {
+				loadSceneMode(sceneModes[selectedSceneMode].Name)
+				getSceneModes()
+				getObjects()
+			}
+		}
 	}
 
 	imgui.Dummy(imgui.Vec2{X: 500, Y: 10})

@@ -87,6 +87,24 @@ func (eg *engineServer) handleRequest(req *egrpc.EngineRequest) *egrpc.EngineRes
 			return errorResponse(egrpc.Operation_OPERATION_UPDATE_OBJECT, err)
 		}
 		return emptySuccessResponse(egrpc.Operation_OPERATION_UPDATE_OBJECT)
+	case egrpc.Operation_OPERATION_LOAD_SCENE:
+		if err := eg.loadScene(req.GetScene()); err != nil {
+			return errorResponse(egrpc.Operation_OPERATION_LOAD_SCENE, err)
+		}
+		return emptySuccessResponse(egrpc.Operation_OPERATION_LOAD_SCENE)
+	case egrpc.Operation_OPERATION_GET_SCENE_MODES:
+		return &egrpc.EngineResponse{
+			Operation: egrpc.Operation_OPERATION_GET_SCENE_MODES,
+			Success:   true,
+			Body: &egrpc.EngineResponse_SceneModes{
+				SceneModes: eg.getSceneModes(),
+			},
+		}
+	case egrpc.Operation_OPERATION_LOAD_SCENE_MODE:
+		if err := eg.loadSceneMode(req.GetSceneMode()); err != nil {
+			return errorResponse(egrpc.Operation_OPERATION_LOAD_SCENE_MODE, err)
+		}
+		return emptySuccessResponse(egrpc.Operation_OPERATION_LOAD_SCENE_MODE)
 	default:
 		return errorResponse(req.GetOperation(), status.Error(codes.InvalidArgument, "unsupported operation"))
 	}
@@ -212,4 +230,41 @@ func (eg *engineServer) updateObject(object *egrpc.Object) error {
 	}
 
 	return status.Errorf(codes.NotFound, "object %d not found", object.Id)
+}
+
+func (eg *engineServer) loadScene(sceneRef *egrpc.SceneRef) error {
+	if sceneRef == nil || sceneRef.GetPath() == "" {
+		return status.Error(codes.InvalidArgument, "scene.path is required")
+	}
+
+	sceneMgr.RequestSceneChange(sceneRef.GetPath())
+	return nil
+}
+
+func (eg *engineServer) getSceneModes() *egrpc.SceneModes {
+	modeNames := sceneMgr.ListModeNames()
+	modesMap := sceneMgr.ListModes()
+
+	result := &egrpc.SceneModes{
+		Modes:            make([]*egrpc.SceneMode, 0, len(modeNames)),
+		CurrentMode:      sceneMgr.CurrentSceneMode(),
+		CurrentScenePath: sceneMgr.CurrentScenePath(),
+	}
+
+	for _, mode := range modeNames {
+		result.Modes = append(result.Modes, &egrpc.SceneMode{
+			Name: mode,
+			Path: modesMap[mode],
+		})
+	}
+	return result
+}
+
+func (eg *engineServer) loadSceneMode(sceneModeRef *egrpc.SceneModeRef) error {
+	if sceneModeRef == nil || sceneModeRef.GetMode() == "" {
+		return status.Error(codes.InvalidArgument, "scene_mode.mode is required")
+	}
+
+	sceneMgr.RequestSceneModeChange(sceneModeRef.GetMode())
+	return nil
 }

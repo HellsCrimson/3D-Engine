@@ -19,6 +19,9 @@ enum Operation {
   OPERATION_ROTATE_OBJECT = 5;
   OPERATION_SCALE_OBJECT = 6;
   OPERATION_UPDATE_OBJECT = 7;
+  OPERATION_LOAD_SCENE = 8;
+  OPERATION_GET_SCENE_MODES = 9;
+  OPERATION_LOAD_SCENE_MODE = 10;
 }
 
 message EngineRequest {
@@ -26,6 +29,8 @@ message EngineRequest {
   oneof body {
     google.protobuf.Empty empty = 2;
     Object object = 3;
+    SceneRef scene = 4;
+    SceneModeRef scene_mode = 5;
   }
 }
 
@@ -37,6 +42,7 @@ message EngineResponse {
     google.protobuf.Empty empty = 4;
     Objects objects = 5;
     Object object = 6;
+    SceneModes scene_modes = 7;
   }
 }
 
@@ -70,3 +76,21 @@ message Vector3 {
   float z = 3;
 }
 
+message SceneRef {
+  string path = 1;
+}
+
+message SceneModeRef {
+  string mode = 1;
+}
+
+message SceneMode {
+  string name = 1;
+  string path = 2;
+}
+
+message SceneModes {
+  repeated SceneMode modes = 1;
+  string current_mode = 2;
+  string current_scene_path = 3;
+}
