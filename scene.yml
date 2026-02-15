@@ -1,6 +1,7 @@
 objects:
-  - path: testObjects/sponza/sponza.obj
+  - path: testObjects/sponza_new/sponza.obj
     name: sponza
+    isStatic: true
     originX: 0.0
     originY: 0.0
     originZ: 0.0
@@ -13,6 +14,7 @@ objects:
     rotationZ: 0.0
   - path: testObjects/inosuke-free-fire/inosuke.obj
     name: inosuke
+    isStatic: false
     originX: 10.1
     originY: 0.0
     originZ: 0.0
@@ -25,6 +27,7 @@ objects:
     rotationZ: 0.0
   - path: testObjects/backpack/backpack.obj
     name: backpack
+    isStatic: false
     originX: 10.0
     originY: 7.3
     originZ: -2.2

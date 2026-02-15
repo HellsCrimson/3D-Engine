@@ -1,13 +1,8 @@
 build:
-	go build -o 3DEngine *.go
+	go build -o 3DEngineGUI *.go
 
 run:
 	go run *.go
-
-run-all:
-	go run . & \
-	cd ui && go run . & \
-	wait
 
 build-rpc:
 	protoc --go_out=. --go_opt=paths=source_relative \
@@ -15,4 +10,4 @@ build-rpc:
 		grpc/engine.proto
 
 clean:
-	- ${RM} 3DEngine
+	- ${RM} 3DEngineGUI

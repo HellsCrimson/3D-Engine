@@ -2,7 +2,7 @@ syntax="proto3";
 
 package grpc;
 
-option go_package = "3d-engine/grpc";
+option go_package = "3d-engine-ui/grpc";
 
 import "google/protobuf/empty.proto";
 
@@ -69,4 +69,3 @@ message Vector3 {
   float y = 2;
   float z = 3;
 }
-

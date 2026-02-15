@@ -1,8 +1,8 @@
 package main
 
 import (
-	context "context"
 	"fmt"
+	"io"
 	"log"
 	"net"
 
@@ -31,7 +31,86 @@ func StartRPCServer() {
 	grpcServer.Serve(lis)
 }
 
-func (eg *engineServer) GetObjects(_ context.Context, _ *emptypb.Empty) (*egrpc.Objects, error) {
+func (eg *engineServer) Stream(stream egrpc.Engine_StreamServer) error {
+	for {
+		req, err := stream.Recv()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		resp := eg.handleRequest(req)
+		if err := stream.Send(resp); err != nil {
+			return err
+		}
+	}
+}
+
+func (eg *engineServer) handleRequest(req *egrpc.EngineRequest) *egrpc.EngineResponse {
+	if req == nil {
+		return errorResponse(egrpc.Operation_OPERATION_UNSPECIFIED, status.Error(codes.InvalidArgument, "request is required"))
+	}
+
+	switch req.GetOperation() {
+	case egrpc.Operation_OPERATION_GET_OBJECTS:
+		objects := eg.getObjects()
+		return &egrpc.EngineResponse{
+			Operation: egrpc.Operation_OPERATION_GET_OBJECTS,
+			Success:   true,
+			Body: &egrpc.EngineResponse_Objects{
+				Objects: objects,
+			},
+		}
+	case egrpc.Operation_OPERATION_ADD_OBJECT:
+		return errorResponse(egrpc.Operation_OPERATION_ADD_OBJECT, status.Error(codes.Unimplemented, "add object is not implemented"))
+	case egrpc.Operation_OPERATION_REMOVE_OBJECT:
+		return errorResponse(egrpc.Operation_OPERATION_REMOVE_OBJECT, status.Error(codes.Unimplemented, "remove object is not implemented"))
+	case egrpc.Operation_OPERATION_MOVE_OBJECT:
+		if err := eg.moveObject(req.GetObject()); err != nil {
+			return errorResponse(egrpc.Operation_OPERATION_MOVE_OBJECT, err)
+		}
+		return emptySuccessResponse(egrpc.Operation_OPERATION_MOVE_OBJECT)
+	case egrpc.Operation_OPERATION_ROTATE_OBJECT:
+		if err := eg.rotateObject(req.GetObject()); err != nil {
+			return errorResponse(egrpc.Operation_OPERATION_ROTATE_OBJECT, err)
+		}
+		return emptySuccessResponse(egrpc.Operation_OPERATION_ROTATE_OBJECT)
+	case egrpc.Operation_OPERATION_SCALE_OBJECT:
+		if err := eg.scaleObject(req.GetObject()); err != nil {
+			return errorResponse(egrpc.Operation_OPERATION_SCALE_OBJECT, err)
+		}
+		return emptySuccessResponse(egrpc.Operation_OPERATION_SCALE_OBJECT)
+	case egrpc.Operation_OPERATION_UPDATE_OBJECT:
+		if err := eg.updateObject(req.GetObject()); err != nil {
+			return errorResponse(egrpc.Operation_OPERATION_UPDATE_OBJECT, err)
+		}
+		return emptySuccessResponse(egrpc.Operation_OPERATION_UPDATE_OBJECT)
+	default:
+		return errorResponse(req.GetOperation(), status.Error(codes.InvalidArgument, "unsupported operation"))
+	}
+}
+
+func emptySuccessResponse(op egrpc.Operation) *egrpc.EngineResponse {
+	return &egrpc.EngineResponse{
+		Operation: op,
+		Success:   true,
+		Body: &egrpc.EngineResponse_Empty{
+			Empty: &emptypb.Empty{},
+		},
+	}
+}
+
+func errorResponse(op egrpc.Operation, err error) *egrpc.EngineResponse {
+	return &egrpc.EngineResponse{
+		Operation: op,
+		Success:   false,
+		Error:     err.Error(),
+	}
+}
+
+func (eg *engineServer) getObjects() *egrpc.Objects {
 	objects := &egrpc.Objects{
 		Objects: []*egrpc.Object{},
 	}
@@ -64,12 +143,12 @@ func (eg *engineServer) GetObjects(_ context.Context, _ *emptypb.Empty) (*egrpc.
 	}
 	modelsMu.RUnlock()
 
-	return objects, nil
+	return objects
 }
 
-func (eg *engineServer) MoveObject(_ context.Context, object *egrpc.Object) (*emptypb.Empty, error) {
+func (eg *engineServer) moveObject(object *egrpc.Object) error {
 	if object == nil || object.Location == nil || object.Location.Position == nil {
-		return nil, status.Error(codes.InvalidArgument, "object.location.position is required")
+		return status.Error(codes.InvalidArgument, "object.location.position is required")
 	}
 
 	modelsMu.Lock()
@@ -77,16 +156,16 @@ func (eg *engineServer) MoveObject(_ context.Context, object *egrpc.Object) (*em
 	for _, model := range models {
 		if model.Id == object.Id {
 			model.Coordinates = mgl32.Vec3{object.Location.Position.X, object.Location.Position.Y, object.Location.Position.Z}
-			return &emptypb.Empty{}, nil
+			return nil
 		}
 	}
 
-	return nil, status.Errorf(codes.NotFound, "object %d not found", object.Id)
+	return status.Errorf(codes.NotFound, "object %d not found", object.Id)
 }
 
-func (eg *engineServer) RotateObject(_ context.Context, object *egrpc.Object) (*emptypb.Empty, error) {
+func (eg *engineServer) rotateObject(object *egrpc.Object) error {
 	if object == nil || object.Location == nil || object.Location.Rotation == nil {
-		return nil, status.Error(codes.InvalidArgument, "object.location.rotation is required")
+		return status.Error(codes.InvalidArgument, "object.location.rotation is required")
 	}
 
 	modelsMu.Lock()
@@ -94,15 +173,15 @@ func (eg *engineServer) RotateObject(_ context.Context, object *egrpc.Object) (*
 	for _, model := range models {
 		if model.Id == object.Id {
 			model.Rotation = mgl32.Vec4{object.Location.Rotation.X, object.Location.Rotation.Y, object.Location.Rotation.Z, object.Location.Rotation.W}
-			return &emptypb.Empty{}, nil
+			return nil
 		}
 	}
-	return nil, status.Errorf(codes.NotFound, "object %d not found", object.Id)
+	return status.Errorf(codes.NotFound, "object %d not found", object.Id)
 }
 
-func (eg *engineServer) ScaleObject(_ context.Context, object *egrpc.Object) (*emptypb.Empty, error) {
+func (eg *engineServer) scaleObject(object *egrpc.Object) error {
 	if object == nil || object.Location == nil || object.Location.Scale == nil {
-		return nil, status.Error(codes.InvalidArgument, "object.location.scale is required")
+		return status.Error(codes.InvalidArgument, "object.location.scale is required")
 	}
 
 	modelsMu.Lock()
@@ -110,15 +189,15 @@ func (eg *engineServer) ScaleObject(_ context.Context, object *egrpc.Object) (*e
 	for _, model := range models {
 		if model.Id == object.Id {
 			model.Scale = mgl32.Vec3{object.Location.Scale.X, object.Location.Scale.Y, object.Location.Scale.Z}
-			return &emptypb.Empty{}, nil
+			return nil
 		}
 	}
-	return nil, status.Errorf(codes.NotFound, "object %d not found", object.Id)
+	return status.Errorf(codes.NotFound, "object %d not found", object.Id)
 }
 
-func (eg *engineServer) UpdateObject(_ context.Context, object *egrpc.Object) (*emptypb.Empty, error) {
+func (eg *engineServer) updateObject(object *egrpc.Object) error {
 	if object == nil || object.Location == nil || object.Location.Position == nil || object.Location.Rotation == nil || object.Location.Scale == nil {
-		return nil, status.Error(codes.InvalidArgument, "object.location with position/rotation/scale is required")
+		return status.Error(codes.InvalidArgument, "object.location with position/rotation/scale is required")
 	}
 
 	modelsMu.Lock()
@@ -128,9 +207,9 @@ func (eg *engineServer) UpdateObject(_ context.Context, object *egrpc.Object) (*
 			model.Coordinates = mgl32.Vec3{object.Location.Position.X, object.Location.Position.Y, object.Location.Position.Z}
 			model.Rotation = mgl32.Vec4{object.Location.Rotation.X, object.Location.Rotation.Y, object.Location.Rotation.Z, object.Location.Rotation.W}
 			model.Scale = mgl32.Vec3{object.Location.Scale.X, object.Location.Scale.Y, object.Location.Scale.Z}
-			return &emptypb.Empty{}, nil
+			return nil
 		}
 	}
 
-	return nil, status.Errorf(codes.NotFound, "object %d not found", object.Id)
+	return status.Errorf(codes.NotFound, "object %d not found", object.Id)
 }
