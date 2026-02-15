@@ -60,11 +60,17 @@ func (kh *KeyHandler) RegisterKeys(window *glfw.Window, cam *Camera, deltaTime *
 	}
 
 	kh.KeyFunc[glfw.KeySpace] = func() bool {
+		if utils.GetContext().PlayerGravityMode {
+			return true
+		}
 		cam.processUp(kh.IsPressed[glfw.KeyLeftShift], deltaTime)
 		return true
 	}
 
 	kh.KeyFunc[glfw.KeyLeftControl] = func() bool {
+		if utils.GetContext().PlayerGravityMode {
+			return true
+		}
 		cam.processDown(kh.IsPressed[glfw.KeyLeftShift], deltaTime)
 		return true
 	}
@@ -99,6 +105,30 @@ func (kh *KeyHandler) RegisterKeys(window *glfw.Window, cam *Camera, deltaTime *
 				window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
 			}
 			utils.GetContext().CaptureCursor = !utils.GetContext().CaptureCursor
+			return true
+		}
+		return false
+	}
+
+	kh.KeyFunc[glfw.KeyG] = func() bool {
+		if glfw.GetTime()-kh.LastPress[glfw.KeyG] >= 0.3 {
+			utils.GetContext().GravityEnabled = !utils.GetContext().GravityEnabled
+			return true
+		}
+		return false
+	}
+
+	kh.KeyFunc[glfw.KeyP] = func() bool {
+		if glfw.GetTime()-kh.LastPress[glfw.KeyP] >= 0.3 {
+			utils.GetContext().PlayerGravityMode = !utils.GetContext().PlayerGravityMode
+			return true
+		}
+		return false
+	}
+
+	kh.KeyFunc[glfw.KeyB] = func() bool {
+		if glfw.GetTime()-kh.LastPress[glfw.KeyB] >= 0.3 {
+			utils.GetContext().CollisionDebug = !utils.GetContext().CollisionDebug
 			return true
 		}
 		return false

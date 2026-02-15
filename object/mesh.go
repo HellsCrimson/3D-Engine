@@ -27,6 +27,9 @@ type Mesh struct {
 	Textures []Texture
 
 	localCenter     mgl32.Vec3
+	localBoundsMin  mgl32.Vec3
+	localBoundsMax  mgl32.Vec3
+	hasLocalBounds  bool
 	hasTransparency bool
 
 	vao uint32
@@ -48,13 +51,39 @@ func CreateMesh(vertices []Vertex, indices []uint32, textures []Texture) *Mesh {
 func (m *Mesh) computeMetadata() {
 	if len(m.Vertices) == 0 {
 		m.localCenter = mgl32.Vec3{0, 0, 0}
+		m.localBoundsMin = mgl32.Vec3{0, 0, 0}
+		m.localBoundsMax = mgl32.Vec3{0, 0, 0}
+		m.hasLocalBounds = false
 	} else {
 		sum := mgl32.Vec3{0, 0, 0}
+		minBounds := mgl32.Vec3{1e9, 1e9, 1e9}
+		maxBounds := mgl32.Vec3{-1e9, -1e9, -1e9}
 		for _, v := range m.Vertices {
 			sum = sum.Add(v.Position)
+			if v.Position.X() < minBounds.X() {
+				minBounds[0] = v.Position.X()
+			}
+			if v.Position.Y() < minBounds.Y() {
+				minBounds[1] = v.Position.Y()
+			}
+			if v.Position.Z() < minBounds.Z() {
+				minBounds[2] = v.Position.Z()
+			}
+			if v.Position.X() > maxBounds.X() {
+				maxBounds[0] = v.Position.X()
+			}
+			if v.Position.Y() > maxBounds.Y() {
+				maxBounds[1] = v.Position.Y()
+			}
+			if v.Position.Z() > maxBounds.Z() {
+				maxBounds[2] = v.Position.Z()
+			}
 		}
 		inv := float32(1.0 / float32(len(m.Vertices)))
 		m.localCenter = sum.Mul(inv)
+		m.localBoundsMin = minBounds
+		m.localBoundsMax = maxBounds
+		m.hasLocalBounds = true
 	}
 
 	for _, tex := range m.Textures {
@@ -111,6 +140,53 @@ func (m *Mesh) IsTransparent() bool {
 func (m *Mesh) WorldCenter(modelMat mgl32.Mat4) mgl32.Vec3 {
 	world := modelMat.Mul4x1(mgl32.Vec4{m.localCenter.X(), m.localCenter.Y(), m.localCenter.Z(), 1.0})
 	return world.Vec3()
+}
+
+func (m *Mesh) WorldAABB(modelMat mgl32.Mat4) (mgl32.Vec3, mgl32.Vec3) {
+	if !m.hasLocalBounds {
+		center := m.WorldCenter(modelMat)
+		return center, center
+	}
+
+	minB := m.localBoundsMin
+	maxB := m.localBoundsMax
+	corners := [8]mgl32.Vec3{
+		{minB.X(), minB.Y(), minB.Z()},
+		{maxB.X(), minB.Y(), minB.Z()},
+		{minB.X(), maxB.Y(), minB.Z()},
+		{maxB.X(), maxB.Y(), minB.Z()},
+		{minB.X(), minB.Y(), maxB.Z()},
+		{maxB.X(), minB.Y(), maxB.Z()},
+		{minB.X(), maxB.Y(), maxB.Z()},
+		{maxB.X(), maxB.Y(), maxB.Z()},
+	}
+
+	first := modelMat.Mul4x1(mgl32.Vec4{corners[0].X(), corners[0].Y(), corners[0].Z(), 1.0}).Vec3()
+	worldMin := first
+	worldMax := first
+	for i := 1; i < len(corners); i++ {
+		worldCorner := modelMat.Mul4x1(mgl32.Vec4{corners[i].X(), corners[i].Y(), corners[i].Z(), 1.0}).Vec3()
+		if worldCorner.X() < worldMin.X() {
+			worldMin[0] = worldCorner.X()
+		}
+		if worldCorner.Y() < worldMin.Y() {
+			worldMin[1] = worldCorner.Y()
+		}
+		if worldCorner.Z() < worldMin.Z() {
+			worldMin[2] = worldCorner.Z()
+		}
+		if worldCorner.X() > worldMax.X() {
+			worldMax[0] = worldCorner.X()
+		}
+		if worldCorner.Y() > worldMax.Y() {
+			worldMax[1] = worldCorner.Y()
+		}
+		if worldCorner.Z() > worldMax.Z() {
+			worldMax[2] = worldCorner.Z()
+		}
+	}
+
+	return worldMin, worldMax
 }
 
 func (m *Mesh) DrawPass(shader *shaders.Shader, drawTransparent bool) {

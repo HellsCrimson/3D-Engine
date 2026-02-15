@@ -37,7 +37,85 @@ var (
 	modelsMu sync.RWMutex
 
 	kh = camera.NewKeyHandler()
+
+	physicsDeltaTime float32 = 1.0 / 50.0
+	gravityStrength  float32 = 9.81
+	gravityDirection         = mgl32.Vec3{0.0, -1.0, 0.0}
+
+	lastGravityAxisToggle float64 = 0
+
+	playerVelocity             = mgl32.Vec3{0, 0, 0}
+	playerHalfExtents          = mgl32.Vec3{0.35, 0.9, 0.35}
+	playerCenterOffset         = mgl32.Vec3{0.0, -0.9, 0.0}
+	playerJumpSpeed    float32 = 6.0
+	playerGrounded             = false
+	lastJumpTime       float64 = 0
+
+	collisionDebugDistance float32 = 80.0
 )
+
+type debugBox struct {
+	min   mgl32.Vec3
+	max   mgl32.Vec3
+	color mgl32.Vec3
+}
+
+type debugBoxRenderer struct {
+	vao uint32
+	vbo uint32
+}
+
+func newDebugBoxRenderer() *debugBoxRenderer {
+	r := &debugBoxRenderer{}
+
+	vertices := []float32{
+		-0.5, -0.5, -0.5, 0.5, -0.5, -0.5,
+		0.5, -0.5, -0.5, 0.5, 0.5, -0.5,
+		0.5, 0.5, -0.5, -0.5, 0.5, -0.5,
+		-0.5, 0.5, -0.5, -0.5, -0.5, -0.5,
+
+		-0.5, -0.5, 0.5, 0.5, -0.5, 0.5,
+		0.5, -0.5, 0.5, 0.5, 0.5, 0.5,
+		0.5, 0.5, 0.5, -0.5, 0.5, 0.5,
+		-0.5, 0.5, 0.5, -0.5, -0.5, 0.5,
+
+		-0.5, -0.5, -0.5, -0.5, -0.5, 0.5,
+		0.5, -0.5, -0.5, 0.5, -0.5, 0.5,
+		0.5, 0.5, -0.5, 0.5, 0.5, 0.5,
+		-0.5, 0.5, -0.5, -0.5, 0.5, 0.5,
+	}
+
+	gl.GenVertexArrays(1, &r.vao)
+	gl.GenBuffers(1, &r.vbo)
+	gl.BindVertexArray(r.vao)
+	gl.BindBuffer(gl.ARRAY_BUFFER, r.vbo)
+	gl.BufferData(gl.ARRAY_BUFFER, len(vertices)*4, gl.Ptr(vertices), gl.STATIC_DRAW)
+	gl.EnableVertexAttribArray(0)
+	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 3*4, nil)
+	gl.BindVertexArray(0)
+
+	return r
+}
+
+func (r *debugBoxRenderer) Delete() {
+	gl.DeleteVertexArrays(1, &r.vao)
+	gl.DeleteBuffers(1, &r.vbo)
+}
+
+func (r *debugBoxRenderer) Draw(shader *shaders.Shader, min, max, color mgl32.Vec3) {
+	center := min.Add(max).Mul(0.5)
+	size := max.Sub(min)
+
+	modelMat := mgl32.Ident4()
+	modelMat = modelMat.Mul4(mgl32.Translate3D(center.X(), center.Y(), center.Z()))
+	modelMat = modelMat.Mul4(mgl32.Scale3D(size.X(), size.Y(), size.Z()))
+
+	shader.SetMat4("model", modelMat)
+	shader.SetVec3Val("color", color)
+	gl.BindVertexArray(r.vao)
+	gl.DrawArrays(gl.LINES, 0, 24)
+	gl.BindVertexArray(0)
+}
 
 func init() {
 	runtime.LockOSThread()
@@ -95,12 +173,23 @@ func main() {
 
 	window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
 	utils.GetContext().CaptureCursor = true
+	utils.GetContext().GravityEnabled = true
+	utils.GetContext().PlayerGravityMode = false
+	utils.GetContext().CollisionDebug = false
 
 	lightingShader, err := shaders.CreateShaderProgram("lighting.vert", "lighting.frag")
 	if err != nil {
 		utils.Logger().Fatalln("Could not create cube shader:", err)
 	}
 	defer lightingShader.Delete()
+
+	debugBoxShader, err := shaders.CreateShaderProgram("debug_box.vert", "debug_box.frag")
+	if err != nil {
+		utils.Logger().Fatalln("Could not create debug shader:", err)
+	}
+	defer debugBoxShader.Delete()
+	debugRenderer := newDebugBoxRenderer()
+	defer debugRenderer.Delete()
 
 	transparent := false
 	lightingShader.NoTexture, err = textures.Load("./textures/missing.png", &transparent)
@@ -135,6 +224,7 @@ func main() {
 		model.Coordinates = mgl32.Vec3{obj.OriginX, obj.OriginY, obj.OriginZ}
 		model.Rotation = mgl32.Vec4{obj.RotationX, obj.RotationY, obj.RotationZ, obj.RotationAngle}
 		model.Scale = mgl32.Vec3{obj.ScaleX, obj.ScaleY, obj.ScaleZ}
+		model.IsStatic = obj.IsStatic
 
 		models = append(models, &model)
 		modelId++
@@ -173,18 +263,18 @@ func main() {
 
 		select {
 		case <-ticker.C:
-			fixedUpdate(window)
+			fixedUpdate(window, cam)
 		default:
 		}
 
-		update(lightingShader, cam, models, skybox)
+		update(lightingShader, debugBoxShader, debugRenderer, cam, models, skybox)
 
 		window.SwapBuffers()
 		glfw.PollEvents()
 	}
 }
 
-func update(shader *shaders.Shader, cam *camera.Camera, models []*object.Model, skybox *object.Skybox) {
+func update(shader *shaders.Shader, debugShader *shaders.Shader, debugRenderer *debugBoxRenderer, cam *camera.Camera, models []*object.Model, skybox *object.Skybox) {
 	type renderItem struct {
 		mesh     *object.Mesh
 		modelMat mgl32.Mat4
@@ -206,6 +296,7 @@ func update(shader *shaders.Shader, cam *camera.Camera, models []*object.Model, 
 
 	opaqueItems := make([]renderItem, 0)
 	transparentItems := make([]renderItem, 0)
+	debugBoxes := make([]debugBox, 0)
 
 	modelsMu.RLock()
 	for _, model := range models {
@@ -214,8 +305,32 @@ func update(shader *shaders.Shader, cam *camera.Camera, models []*object.Model, 
 		modelVec = modelVec.Mul4(mgl32.HomogRotate3D(mgl32.DegToRad(model.Rotation.W()), model.Rotation.Vec3()))
 		modelVec = modelVec.Mul4(mgl32.Scale3D(model.Scale.X(), model.Scale.Y(), model.Scale.Z()))
 
+		if utils.GetContext().CollisionDebug {
+			modelMin, modelMax := model.WorldAABB()
+			modelCenter := modelMin.Add(modelMax).Mul(0.5)
+			if cam.CameraPos.Sub(modelCenter).Len() <= collisionDebugDistance {
+				debugBoxes = append(debugBoxes, debugBox{
+					min:   modelMin,
+					max:   modelMax,
+					color: mgl32.Vec3{1.0, 0.2, 0.2},
+				})
+			}
+		}
+
 		for i := range model.Meshes {
 			mesh := &model.Meshes[i]
+			if utils.GetContext().CollisionDebug {
+				meshMin, meshMax := mesh.WorldAABB(modelVec)
+				meshCenter := meshMin.Add(meshMax).Mul(0.5)
+				if cam.CameraPos.Sub(meshCenter).Len() <= collisionDebugDistance {
+					debugBoxes = append(debugBoxes, debugBox{
+						min:   meshMin,
+						max:   meshMax,
+						color: mgl32.Vec3{1.0, 0.8, 0.2},
+					})
+				}
+			}
+
 			if mesh.IsTransparent() {
 				dist := cam.CameraPos.Sub(mesh.WorldCenter(modelVec)).LenSqr()
 				transparentItems = append(transparentItems, renderItem{
@@ -233,6 +348,15 @@ func update(shader *shaders.Shader, cam *camera.Camera, models []*object.Model, 
 	}
 	modelsMu.RUnlock()
 
+	if utils.GetContext().CollisionDebug && utils.GetContext().PlayerGravityMode {
+		playerMin, playerMax := playerAABB(cam.CameraPos)
+		debugBoxes = append(debugBoxes, debugBox{
+			min:   playerMin,
+			max:   playerMax,
+			color: mgl32.Vec3{0.2, 1.0, 0.2},
+		})
+	}
+
 	for _, item := range opaqueItems {
 		shader.SetMat4("model", item.modelMat)
 		item.mesh.DrawPass(shader, false)
@@ -246,11 +370,155 @@ func update(shader *shaders.Shader, cam *camera.Camera, models []*object.Model, 
 		item.mesh.DrawPass(shader, true)
 	}
 
+	if utils.GetContext().CollisionDebug {
+		debugShader.Use()
+		debugShader.SetMat4("projection", cam.ComputeProjection(g_width, g_height))
+		debugShader.SetMat4("view", cam.ComputeView())
+		gl.Disable(gl.CULL_FACE)
+		for _, box := range debugBoxes {
+			debugRenderer.Draw(debugShader, box.min, box.max, box.color)
+		}
+		gl.Enable(gl.CULL_FACE)
+	}
+
 	skybox.RenderSkybox(cam.ComputeView().Mat3().Mat4(), cam.ComputeProjection(g_width, g_height))
 }
 
-func fixedUpdate(window *glfw.Window) {
+func fixedUpdate(window *glfw.Window, cam *camera.Camera) {
+	modelsMu.Lock()
+	defer modelsMu.Unlock()
 
+	if utils.GetContext().GravityEnabled {
+		for _, model := range models {
+			if model.IsStatic {
+				continue
+			}
+
+			model.Velocity = model.Velocity.Add(gravityDirection.Mul(gravityStrength * physicsDeltaTime))
+			model.Coordinates = model.Coordinates.Add(model.Velocity.Mul(physicsDeltaTime))
+
+			for _, other := range models {
+				if other.Id == model.Id {
+					continue
+				}
+				if !model.Intersects(other) {
+					continue
+				}
+
+				separation := model.CollisionSeparation(other)
+				if separation == (mgl32.Vec3{}) {
+					continue
+				}
+
+				model.Coordinates = model.Coordinates.Add(separation)
+				zeroVelocityOnSeparation(&model.Velocity, separation)
+			}
+		}
+	}
+
+	if !utils.GetContext().PlayerGravityMode {
+		playerVelocity = mgl32.Vec3{0, 0, 0}
+		playerGrounded = false
+		return
+	}
+
+	if utils.GetContext().GravityEnabled {
+		playerVelocity = playerVelocity.Add(gravityDirection.Mul(gravityStrength * physicsDeltaTime))
+	}
+
+	if window.GetKey(glfw.KeySpace) == glfw.Press && playerGrounded && glfw.GetTime()-lastJumpTime >= 0.2 {
+		playerVelocity = playerVelocity.Add(gravityDirection.Mul(-playerJumpSpeed))
+		playerGrounded = false
+		lastJumpTime = glfw.GetTime()
+	}
+
+	cam.CameraPos = cam.CameraPos.Add(playerVelocity.Mul(physicsDeltaTime))
+	playerGrounded = false
+
+	for _, model := range models {
+		modelMat := mgl32.Ident4()
+		modelMat = modelMat.Mul4(mgl32.Translate3D(model.Coordinates.X(), model.Coordinates.Y(), model.Coordinates.Z()))
+		modelMat = modelMat.Mul4(mgl32.HomogRotate3D(mgl32.DegToRad(model.Rotation.W()), model.Rotation.Vec3()))
+		modelMat = modelMat.Mul4(mgl32.Scale3D(model.Scale.X(), model.Scale.Y(), model.Scale.Z()))
+
+		for i := range model.Meshes {
+			meshMin, meshMax := model.Meshes[i].WorldAABB(modelMat)
+			separation := playerAABBCollisionSeparation(cam.CameraPos, meshMin, meshMax)
+			if separation == (mgl32.Vec3{}) {
+				continue
+			}
+
+			cam.CameraPos = cam.CameraPos.Add(separation)
+			zeroVelocityOnSeparation(&playerVelocity, separation)
+			if separation.Dot(gravityDirection) < 0 {
+				playerGrounded = true
+			}
+		}
+	}
+}
+
+func zeroVelocityOnSeparation(velocity *mgl32.Vec3, separation mgl32.Vec3) {
+	if separation.X() != 0 {
+		(*velocity)[0] = 0
+	}
+	if separation.Y() != 0 {
+		(*velocity)[1] = 0
+	}
+	if separation.Z() != 0 {
+		(*velocity)[2] = 0
+	}
+}
+
+func playerAABB(cameraPos mgl32.Vec3) (mgl32.Vec3, mgl32.Vec3) {
+	center := cameraPos.Add(playerCenterOffset)
+	return center.Sub(playerHalfExtents), center.Add(playerHalfExtents)
+}
+
+func playerAABBCollisionSeparation(cameraPos mgl32.Vec3, otherMin, otherMax mgl32.Vec3) mgl32.Vec3 {
+	playerMin, playerMax := playerAABB(cameraPos)
+
+	overlapX := minf(playerMax.X(), otherMax.X()) - maxf(playerMin.X(), otherMin.X())
+	overlapY := minf(playerMax.Y(), otherMax.Y()) - maxf(playerMin.Y(), otherMin.Y())
+	overlapZ := minf(playerMax.Z(), otherMax.Z()) - maxf(playerMin.Z(), otherMin.Z())
+	if overlapX <= 0 || overlapY <= 0 || overlapZ <= 0 {
+		return mgl32.Vec3{0, 0, 0}
+	}
+
+	playerCenter := playerMin.Add(playerMax).Mul(0.5)
+	otherCenter := otherMin.Add(otherMax).Mul(0.5)
+
+	if overlapX <= overlapY && overlapX <= overlapZ {
+		if playerCenter.X() < otherCenter.X() {
+			return mgl32.Vec3{-overlapX, 0, 0}
+		}
+		return mgl32.Vec3{overlapX, 0, 0}
+	}
+
+	if overlapY <= overlapX && overlapY <= overlapZ {
+		if playerCenter.Y() < otherCenter.Y() {
+			return mgl32.Vec3{0, -overlapY, 0}
+		}
+		return mgl32.Vec3{0, overlapY, 0}
+	}
+
+	if playerCenter.Z() < otherCenter.Z() {
+		return mgl32.Vec3{0, 0, -overlapZ}
+	}
+	return mgl32.Vec3{0, 0, overlapZ}
+}
+
+func minf(a, b float32) float32 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxf(a, b float32) float32 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func computeLight(shader *shaders.Shader, cam *camera.Camera) {
@@ -291,6 +559,18 @@ func computeLight(shader *shaders.Shader, cam *camera.Camera) {
 }
 
 func processInput(window *glfw.Window) {
+	// Switch gravity axis between -Y and -Z for world-space testing.
+	if window.GetKey(glfw.KeyH) == glfw.Press && glfw.GetTime()-lastGravityAxisToggle >= 0.3 {
+		lastGravityAxisToggle = glfw.GetTime()
+		if gravityDirection == (mgl32.Vec3{0.0, -1.0, 0.0}) {
+			gravityDirection = mgl32.Vec3{0.0, 0.0, -1.0}
+			utils.Logger().Println("Gravity axis set to -Z")
+		} else {
+			gravityDirection = mgl32.Vec3{0.0, -1.0, 0.0}
+			utils.Logger().Println("Gravity axis set to -Y")
+		}
+	}
+
 	for i := glfw.KeySpace; i < glfw.KeyLast; i++ {
 		if window.GetKey(i) == glfw.Press {
 			kh.PressKey(i)

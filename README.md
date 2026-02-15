@@ -16,6 +16,16 @@ go run main.go
 
 You will need to adjust the scene.yml to add your own models
 
+## Controls
+
+- `G`: toggle gravity on/off
+- `H`: switch gravity axis (`-Y` / `-Z`) for world-space testing
+- `P`: toggle player gravity mode (camera uses collider + gravity)
+- `Space`: jump when player gravity mode is enabled and grounded
+- `B`: toggle collision debug boxes (red=model, yellow=mesh, green=player)
+- `Z`: toggle wireframe mode
+- `F`: toggle flashlight
+
 ## References
 
 [Learn OpenGL❤️](https://learnopengl.com)  

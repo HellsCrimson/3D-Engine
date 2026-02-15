@@ -9,9 +9,12 @@ var lockContext = &sync.Mutex{}
 type Context struct {
 	DebugLevel DebugLevel
 
-	Wireframe     bool
-	CaptureCursor bool
-	FlashLight    bool
+	Wireframe         bool
+	CaptureCursor     bool
+	FlashLight        bool
+	GravityEnabled    bool
+	PlayerGravityMode bool
+	CollisionDebug    bool
 
 	ConfigPath string
 	ScenePath  string

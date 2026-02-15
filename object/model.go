@@ -22,6 +22,12 @@ type Model struct {
 	Coordinates mgl32.Vec3
 	Rotation    mgl32.Vec4 // W is for the angle
 	Scale       mgl32.Vec3
+	Velocity    mgl32.Vec3
+	IsStatic    bool
+
+	localBoundsMin mgl32.Vec3
+	localBoundsMax mgl32.Vec3
+	hasLocalBounds bool
 }
 
 func (m *Model) Draw(shader *shaders.Shader) {
@@ -45,6 +51,7 @@ func (m *Model) LoadScene(path string) error {
 	if err := m.processNode(scene.RootNode, scene); err != nil {
 		return err
 	}
+	m.computeLocalBounds()
 	return nil
 }
 

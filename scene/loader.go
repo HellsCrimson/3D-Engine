@@ -14,6 +14,7 @@ type Scene struct {
 type Object struct {
 	Name          string  `yaml:"name"`
 	Path          string  `yaml:"path"`
+	IsStatic      bool    `yaml:"isStatic"`
 	OriginX       float32 `yaml:"originX"`
 	OriginY       float32 `yaml:"originY"`
 	OriginZ       float32 `yaml:"originZ"`

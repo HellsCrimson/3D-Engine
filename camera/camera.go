@@ -57,7 +57,15 @@ func (c *Camera) processForward(isRunning bool, deltaTime *float32) {
 	}
 
 	curCameraSpeed := cameraSpeed * *deltaTime
-	c.CameraPos = c.CameraPos.Add(c.CameraFront.Mul(curCameraSpeed))
+	forward := c.CameraFront
+	if utils.GetContext().PlayerGravityMode {
+		forward = mgl32.Vec3{c.CameraFront.X(), 0, c.CameraFront.Z()}
+		if forward.LenSqr() < 1e-6 {
+			return
+		}
+		forward = forward.Normalize()
+	}
+	c.CameraPos = c.CameraPos.Add(forward.Mul(curCameraSpeed))
 }
 
 func (c *Camera) processLeft(isRunning bool, deltaTime *float32) {
@@ -69,7 +77,7 @@ func (c *Camera) processLeft(isRunning bool, deltaTime *float32) {
 	}
 
 	curCameraSpeed := cameraSpeed * *deltaTime
-	c.CameraPos = c.CameraPos.Sub(c.CameraFront.Cross(c.CameraUp).Mul(curCameraSpeed))
+	c.CameraPos = c.CameraPos.Sub(c.CameraRight.Mul(curCameraSpeed))
 }
 
 func (c *Camera) processBack(isRunning bool, deltaTime *float32) {
@@ -81,7 +89,15 @@ func (c *Camera) processBack(isRunning bool, deltaTime *float32) {
 	}
 
 	curCameraSpeed := cameraSpeed * *deltaTime
-	c.CameraPos = c.CameraPos.Sub(c.CameraFront.Mul(curCameraSpeed))
+	forward := c.CameraFront
+	if utils.GetContext().PlayerGravityMode {
+		forward = mgl32.Vec3{c.CameraFront.X(), 0, c.CameraFront.Z()}
+		if forward.LenSqr() < 1e-6 {
+			return
+		}
+		forward = forward.Normalize()
+	}
+	c.CameraPos = c.CameraPos.Sub(forward.Mul(curCameraSpeed))
 }
 
 func (c *Camera) processRight(isRunning bool, deltaTime *float32) {
@@ -93,7 +109,7 @@ func (c *Camera) processRight(isRunning bool, deltaTime *float32) {
 	}
 
 	curCameraSpeed := cameraSpeed * *deltaTime
-	c.CameraPos = c.CameraPos.Add(c.CameraFront.Cross(c.CameraUp).Mul(curCameraSpeed))
+	c.CameraPos = c.CameraPos.Add(c.CameraRight.Mul(curCameraSpeed))
 }
 
 func (c *Camera) processUp(isRunning bool, deltaTime *float32) {
