@@ -11,20 +11,25 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
-// SceneManager owns the current/pending scene selection. Scene changes
-// requested from other goroutines are recorded as pending and applied by the
-// frame loop, because LoadScene uploads meshes and textures to the GPU.
+// SceneManager owns the current scene selection. Because LoadScene uploads
+// meshes and textures to the GPU, changes requested from other goroutines are
+// queued onto the frame loop through App.Defer.
 type SceneManager struct {
 	app *App
 
 	mu               sync.Mutex
 	currentScenePath string
 	currentSceneMode string
-	pendingScenePath string
-	pendingSceneMode string
 	sceneModes       map[string]string
 	defaultSceneMode string
 	fallbackScene    string
+
+	// requested* hold the latest pending request. Only one command is ever in
+	// flight, so spamming scene changes during a slow load still loads once,
+	// with the newest request winning.
+	requestQueued bool
+	requestedPath string
+	requestedMode string
 }
 
 func NewSceneManager(app *App, config *utils.Config, fallbackScenePath string) *SceneManager {
@@ -55,31 +60,31 @@ func (sm *SceneManager) LoadScene(scenePath string) error {
 		return err
 	}
 
-	newModels := make([]*object.Model, 0, len(loadedScene.Objects))
-	modelID := uint32(0)
+	entities := make([]*Entity, 0, len(loadedScene.Objects))
 
 	for _, obj := range loadedScene.Objects {
-		model := &object.Model{Id: modelID, Name: obj.Name}
-		if err := model.LoadScene(obj.Path); err != nil {
+		model := &object.Model{}
+		if err := model.Import(obj.Path); err != nil {
 			return fmt.Errorf("could not load model %q: %w", obj.Path, err)
 		}
 
-		model.Coordinates = mgl32.Vec3{obj.OriginX, obj.OriginY, obj.OriginZ}
-		model.Rotation = mgl32.Vec4{obj.RotationX, obj.RotationY, obj.RotationZ, obj.RotationAngle}
-		model.Scale = mgl32.Vec3{obj.ScaleX, obj.ScaleY, obj.ScaleZ}
-		model.IsStatic = obj.IsStatic
+		entity := NewEntity(obj.Name)
+		entity.SetTransform(Transform{
+			Position: mgl32.Vec3{obj.OriginX, obj.OriginY, obj.OriginZ},
+			Rotation: mgl32.Vec4{obj.RotationX, obj.RotationY, obj.RotationZ, obj.RotationAngle},
+			Scale:    mgl32.Vec3{obj.ScaleX, obj.ScaleY, obj.ScaleZ},
+		})
+		entity.Renderer = &MeshRenderer{Model: model}
+		entity.Body = &RigidBody{Static: obj.IsStatic}
 
-		newModels = append(newModels, model)
-		modelID++
+		entities = append(entities, entity)
 	}
 
-	sm.app.setModels(newModels)
+	sm.app.World.Replace(entities)
 
 	sm.mu.Lock()
 	sm.currentScenePath = scenePath
 	sm.currentSceneMode = sm.resolveModeFromPath(scenePath)
-	sm.pendingScenePath = ""
-	sm.pendingSceneMode = ""
 	sm.mu.Unlock()
 
 	return nil
@@ -132,54 +137,71 @@ func (sm *SceneManager) ListModeNames() []string {
 	return names
 }
 
-// RequestSceneChange is safe to call from any goroutine.
+// RequestSceneChange queues a scene load onto the frame loop. Safe to call from
+// any goroutine.
 func (sm *SceneManager) RequestSceneChange(scenePath string) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	sm.pendingScenePath = scenePath
-	sm.pendingSceneMode = ""
+	sm.request(scenePath, "")
 }
 
-// RequestSceneModeChange is safe to call from any goroutine.
-func (sm *SceneManager) RequestSceneModeChange(sceneMode string) {
+// RequestSceneModeChange resolves the mode and queues its scene. Unlike the
+// path variant it can fail up front, so an unknown mode is reported to the
+// caller instead of only showing up in the engine log a frame later.
+func (sm *SceneManager) RequestSceneModeChange(sceneMode string) error {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	sm.pendingSceneMode = sceneMode
-	sm.pendingScenePath = ""
-}
-
-func (sm *SceneManager) ApplyPendingSceneChange() (bool, error) {
-	sm.mu.Lock()
-	pending := sm.pendingScenePath
-	pendingMode := sm.pendingSceneMode
+	scenePath, ok := sm.sceneModes[sceneMode]
 	sm.mu.Unlock()
 
-	if pendingMode != "" {
-		sm.mu.Lock()
-		scenePath, ok := sm.sceneModes[pendingMode]
-		sm.mu.Unlock()
-		if !ok {
-			return false, fmt.Errorf("scene mode %q is not configured", pendingMode)
-		}
-		if err := sm.LoadScene(scenePath); err != nil {
-			return false, err
-		}
-		sm.mu.Lock()
-		sm.currentSceneMode = pendingMode
-		sm.pendingSceneMode = ""
-		sm.pendingScenePath = ""
-		sm.mu.Unlock()
-		return true, nil
+	if !ok {
+		return fmt.Errorf("scene mode %q is not configured", sceneMode)
 	}
 
-	if pending == "" {
-		return false, nil
+	sm.request(scenePath, sceneMode)
+	return nil
+}
+
+func (sm *SceneManager) request(scenePath, sceneMode string) {
+	sm.mu.Lock()
+	sm.requestedPath = scenePath
+	sm.requestedMode = sceneMode
+	alreadyQueued := sm.requestQueued
+	sm.requestQueued = true
+	sm.mu.Unlock()
+
+	// A command is already in flight and will pick up the newest request, so
+	// queueing another would just load twice.
+	if alreadyQueued {
+		return
 	}
 
-	if err := sm.LoadScene(pending); err != nil {
-		return false, err
+	sm.app.Defer(sm.applyRequest)
+}
+
+func (sm *SceneManager) applyRequest(a *App) error {
+	sm.mu.Lock()
+	scenePath := sm.requestedPath
+	sceneMode := sm.requestedMode
+	sm.requestedPath = ""
+	sm.requestedMode = ""
+	sm.requestQueued = false
+	sm.mu.Unlock()
+
+	if scenePath == "" {
+		return nil
 	}
-	return true, nil
+
+	if err := sm.LoadScene(scenePath); err != nil {
+		return fmt.Errorf("failed to switch scene: %w", err)
+	}
+
+	if sceneMode != "" {
+		sm.mu.Lock()
+		sm.currentSceneMode = sceneMode
+		sm.mu.Unlock()
+	}
+
+	utils.Logger().Printf("Switched scene to %s", scenePath)
+	a.resetDynamicState()
+	return nil
 }
 
 func (sm *SceneManager) resolveModeFromPath(scenePath string) string {

@@ -142,51 +142,11 @@ func (m *Mesh) WorldCenter(modelMat mgl32.Mat4) mgl32.Vec3 {
 	return world.Vec3()
 }
 
-func (m *Mesh) WorldAABB(modelMat mgl32.Mat4) (mgl32.Vec3, mgl32.Vec3) {
+func (m *Mesh) WorldAABB(modelMat mgl32.Mat4) AABB {
 	if !m.hasLocalBounds {
-		center := m.WorldCenter(modelMat)
-		return center, center
+		return PointAABB(m.WorldCenter(modelMat))
 	}
-
-	minB := m.localBoundsMin
-	maxB := m.localBoundsMax
-	corners := [8]mgl32.Vec3{
-		{minB.X(), minB.Y(), minB.Z()},
-		{maxB.X(), minB.Y(), minB.Z()},
-		{minB.X(), maxB.Y(), minB.Z()},
-		{maxB.X(), maxB.Y(), minB.Z()},
-		{minB.X(), minB.Y(), maxB.Z()},
-		{maxB.X(), minB.Y(), maxB.Z()},
-		{minB.X(), maxB.Y(), maxB.Z()},
-		{maxB.X(), maxB.Y(), maxB.Z()},
-	}
-
-	first := modelMat.Mul4x1(mgl32.Vec4{corners[0].X(), corners[0].Y(), corners[0].Z(), 1.0}).Vec3()
-	worldMin := first
-	worldMax := first
-	for i := 1; i < len(corners); i++ {
-		worldCorner := modelMat.Mul4x1(mgl32.Vec4{corners[i].X(), corners[i].Y(), corners[i].Z(), 1.0}).Vec3()
-		if worldCorner.X() < worldMin.X() {
-			worldMin[0] = worldCorner.X()
-		}
-		if worldCorner.Y() < worldMin.Y() {
-			worldMin[1] = worldCorner.Y()
-		}
-		if worldCorner.Z() < worldMin.Z() {
-			worldMin[2] = worldCorner.Z()
-		}
-		if worldCorner.X() > worldMax.X() {
-			worldMax[0] = worldCorner.X()
-		}
-		if worldCorner.Y() > worldMax.Y() {
-			worldMax[1] = worldCorner.Y()
-		}
-		if worldCorner.Z() > worldMax.Z() {
-			worldMax[2] = worldCorner.Z()
-		}
-	}
-
-	return worldMin, worldMax
+	return AABB{Min: m.localBoundsMin, Max: m.localBoundsMax}.Transform(modelMat)
 }
 
 func (m *Mesh) DrawPass(shader *shaders.Shader, drawTransparent bool) {

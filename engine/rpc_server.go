@@ -6,7 +6,6 @@ import (
 	"net"
 
 	egrpc "3d-engine/grpc"
-	"3d-engine/object"
 	"3d-engine/utils"
 
 	"github.com/go-gl/mathgl/mgl32"
@@ -146,27 +145,28 @@ func (eg *engineServer) getObjects() *egrpc.Objects {
 		Objects: []*egrpc.Object{},
 	}
 
-	eg.app.Models(func(models []*object.Model) {
-		for _, model := range models {
+	eg.app.World.Read(func(entities []*Entity) {
+		for _, entity := range entities {
+			transform := entity.Transform()
 			objects.Objects = append(objects.Objects, &egrpc.Object{
-				Id:   model.Id,
-				Name: model.Name,
+				Id:   entity.ID,
+				Name: entity.Name,
 				Location: &egrpc.Location{
 					Position: &egrpc.Vector3{
-						X: model.Coordinates.X(),
-						Y: model.Coordinates.Y(),
-						Z: model.Coordinates.Z(),
+						X: transform.Position.X(),
+						Y: transform.Position.Y(),
+						Z: transform.Position.Z(),
 					},
 					Rotation: &egrpc.Vector4{
-						X: model.Rotation.X(),
-						Y: model.Rotation.Y(),
-						Z: model.Rotation.Z(),
-						W: model.Rotation.W(),
+						X: transform.Rotation.X(),
+						Y: transform.Rotation.Y(),
+						Z: transform.Rotation.Z(),
+						W: transform.Rotation.W(),
 					},
 					Scale: &egrpc.Vector3{
-						X: model.Scale.X(),
-						Y: model.Scale.Y(),
-						Z: model.Scale.Z(),
+						X: transform.Scale.X(),
+						Y: transform.Scale.Y(),
+						Z: transform.Scale.Z(),
 					},
 				},
 			})
@@ -176,9 +176,9 @@ func (eg *engineServer) getObjects() *egrpc.Objects {
 	return objects
 }
 
-// mutate applies fn to the addressed model, translating a miss into a NotFound.
-func (eg *engineServer) mutate(id uint32, fn func(model *object.Model)) error {
-	if eg.app.MutateModel(id, fn) {
+// mutate applies fn to the addressed entity, translating a miss into a NotFound.
+func (eg *engineServer) mutate(id uint32, fn func(e *Entity)) error {
+	if eg.app.World.Mutate(id, fn) {
 		return nil
 	}
 	return status.Errorf(codes.NotFound, "object %d not found", id)
@@ -189,8 +189,8 @@ func (eg *engineServer) moveObject(obj *egrpc.Object) error {
 		return status.Error(codes.InvalidArgument, "object.location.position is required")
 	}
 
-	return eg.mutate(obj.Id, func(model *object.Model) {
-		model.Coordinates = toVec3(obj.Location.Position)
+	return eg.mutate(obj.Id, func(e *Entity) {
+		e.SetPosition(toVec3(obj.Location.Position))
 	})
 }
 
@@ -199,8 +199,8 @@ func (eg *engineServer) rotateObject(obj *egrpc.Object) error {
 		return status.Error(codes.InvalidArgument, "object.location.rotation is required")
 	}
 
-	return eg.mutate(obj.Id, func(model *object.Model) {
-		model.Rotation = toVec4(obj.Location.Rotation)
+	return eg.mutate(obj.Id, func(e *Entity) {
+		e.SetRotation(toVec4(obj.Location.Rotation))
 	})
 }
 
@@ -209,8 +209,8 @@ func (eg *engineServer) scaleObject(obj *egrpc.Object) error {
 		return status.Error(codes.InvalidArgument, "object.location.scale is required")
 	}
 
-	return eg.mutate(obj.Id, func(model *object.Model) {
-		model.Scale = toVec3(obj.Location.Scale)
+	return eg.mutate(obj.Id, func(e *Entity) {
+		e.SetScale(toVec3(obj.Location.Scale))
 	})
 }
 
@@ -219,10 +219,12 @@ func (eg *engineServer) updateObject(obj *egrpc.Object) error {
 		return status.Error(codes.InvalidArgument, "object.location with position/rotation/scale is required")
 	}
 
-	return eg.mutate(obj.Id, func(model *object.Model) {
-		model.Coordinates = toVec3(obj.Location.Position)
-		model.Rotation = toVec4(obj.Location.Rotation)
-		model.Scale = toVec3(obj.Location.Scale)
+	return eg.mutate(obj.Id, func(e *Entity) {
+		e.SetTransform(Transform{
+			Position: toVec3(obj.Location.Position),
+			Rotation: toVec4(obj.Location.Rotation),
+			Scale:    toVec3(obj.Location.Scale),
+		})
 	})
 }
 
@@ -267,6 +269,8 @@ func (eg *engineServer) loadSceneMode(sceneModeRef *egrpc.SceneModeRef) error {
 		return status.Error(codes.InvalidArgument, "scene_mode.mode is required")
 	}
 
-	eg.app.Scenes.RequestSceneModeChange(sceneModeRef.GetMode())
+	if err := eg.app.Scenes.RequestSceneModeChange(sceneModeRef.GetMode()); err != nil {
+		return status.Error(codes.InvalidArgument, err.Error())
+	}
 	return nil
 }

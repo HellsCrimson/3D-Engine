@@ -13,7 +13,6 @@ import (
 	"math"
 	"sort"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/go-gl/gl/v4.6-core/gl"
@@ -62,7 +61,10 @@ type App struct {
 	Window *glfw.Window
 	Camera *camera.Camera
 	Scenes *SceneManager
-	Keys   *camera.KeyHandler
+	Keys   *KeyHandler
+
+	// State holds the runtime toggles (wireframe, gravity, debug boxes, ...).
+	State State
 
 	width  int
 	height int
@@ -72,8 +74,11 @@ type App struct {
 	lastFrameCounter float32
 	nbFrames         int
 
-	models   []*object.Model
-	modelsMu sync.RWMutex
+	// World holds the scene's entities and owns their locking.
+	World *World
+
+	// commands carries work from other goroutines back onto the frame loop.
+	commands commandQueue
 
 	lightingShader *shaders.Shader
 	debugBoxShader *shaders.Shader
@@ -115,7 +120,13 @@ func New(opts Options) (*App, error) {
 		Config: config,
 		width:  config.Width,
 		height: config.Height,
-		Keys:   camera.NewKeyHandler(),
+		Keys:   NewKeyHandler(),
+		World:  NewWorld(),
+
+		State: State{
+			CaptureCursor:  true,
+			GravityEnabled: true,
+		},
 
 		physicsDeltaTime: 1.0 / float32(fixedUpdateRate),
 		gravityStrength:  9.81,
@@ -147,7 +158,7 @@ func New(opts Options) (*App, error) {
 
 	a.Window.SetCursorPosCallback(a.Camera.MouseCallback)
 	a.Window.SetScrollCallback(a.Camera.ScrollCallback)
-	a.Keys.RegisterKeys(a.Window, a.Camera, &a.deltaTime)
+	a.registerDefaultKeys()
 
 	if !opts.DisableRPC {
 		if err := a.startRPCServer(opts.RPCAddr); err != nil {
@@ -192,13 +203,8 @@ func (a *App) initWindow() error {
 	glfw.SwapInterval(a.Config.GetVsync())
 
 	window.SetFramebufferSizeCallback(a.onFramebufferSize)
+	// Matches State.CaptureCursor, which New defaults to true.
 	window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
-
-	ctx := utils.GetContext()
-	ctx.CaptureCursor = true
-	ctx.GravityEnabled = true
-	ctx.PlayerGravityMode = false
-	ctx.CollisionDebug = false
 
 	return nil
 }
@@ -245,9 +251,7 @@ func (a *App) Run() error {
 		a.deltaTime = currentFrame - a.lastFrame
 		a.lastFrame = currentFrame
 
-		if utils.GetContext().DebugLevel > utils.Info {
-			utils.Logger().Printf("Frame time: %.2f ms\n", a.deltaTime*1000)
-		}
+		utils.Logger().Verbosef("Frame time: %.2f ms\n", a.deltaTime*1000)
 
 		a.fpsCounter()
 
@@ -256,13 +260,9 @@ func (a *App) Run() error {
 		gl.ClearColor(0.0, 0.0, 0.0, 1.0)
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-		changed, err := a.Scenes.ApplyPendingSceneChange()
-		if err != nil {
-			utils.Logger().Printf("Failed to switch scene: %v", err)
-		} else if changed {
-			utils.Logger().Printf("Switched scene to %s", a.Scenes.CurrentScenePath())
-			a.resetDynamicState()
-		}
+		// Anything that needs the GL thread — scene loads today, spawns and
+		// asset loads later — runs here.
+		a.drainCommands()
 
 		select {
 		case <-ticker.C:
@@ -282,6 +282,9 @@ func (a *App) Run() error {
 // Close releases the GL resources, the window and the RPC listener. It is safe
 // to call on a partially constructed App.
 func (a *App) Close() {
+	// Release anyone blocked in Do before the loop stops draining.
+	a.commands.close()
+
 	if a.rpc != nil {
 		a.rpc.Stop()
 		a.rpc = nil
@@ -312,33 +315,6 @@ func (a *App) Close() {
 
 // Models runs fn under the read lock. The slice is only valid for the duration
 // of the call — do not retain it.
-func (a *App) Models(fn func(models []*object.Model)) {
-	a.modelsMu.RLock()
-	defer a.modelsMu.RUnlock()
-	fn(a.models)
-}
-
-// MutateModel runs fn against the model with the given id under the write lock
-// and reports whether it was found.
-func (a *App) MutateModel(id uint32, fn func(model *object.Model)) bool {
-	a.modelsMu.Lock()
-	defer a.modelsMu.Unlock()
-
-	for _, model := range a.models {
-		if model.Id == id {
-			fn(model)
-			return true
-		}
-	}
-	return false
-}
-
-func (a *App) setModels(models []*object.Model) {
-	a.modelsMu.Lock()
-	a.models = models
-	a.modelsMu.Unlock()
-}
-
 type renderItem struct {
 	mesh     *object.Mesh
 	modelMat mgl32.Mat4
@@ -365,61 +341,46 @@ func (a *App) render() {
 	transparentItems := make([]renderItem, 0)
 	debugBoxes := make([]debugBox, 0)
 
-	a.modelsMu.RLock()
-	for _, model := range a.models {
-		modelVec := mgl32.Ident4()
-		modelVec = modelVec.Mul4(mgl32.Translate3D(model.Coordinates.X(), model.Coordinates.Y(), model.Coordinates.Z()))
-		modelVec = modelVec.Mul4(mgl32.HomogRotate3D(mgl32.DegToRad(model.Rotation.W()), model.Rotation.Vec3()))
-		modelVec = modelVec.Mul4(mgl32.Scale3D(model.Scale.X(), model.Scale.Y(), model.Scale.Z()))
-
-		if utils.GetContext().CollisionDebug {
-			modelMin, modelMax := model.WorldAABB()
-			modelCenter := modelMin.Add(modelMax).Mul(0.5)
-			if a.Camera.CameraPos.Sub(modelCenter).Len() <= a.collisionDebugDistance {
-				debugBoxes = append(debugBoxes, debugBox{
-					min:   modelMin,
-					max:   modelMax,
-					color: mgl32.Vec3{1.0, 0.2, 0.2},
-				})
-			}
-		}
-
-		for i := range model.Meshes {
-			mesh := &model.Meshes[i]
-			if utils.GetContext().CollisionDebug {
-				meshMin, meshMax := mesh.WorldAABB(modelVec)
-				meshCenter := meshMin.Add(meshMax).Mul(0.5)
-				if a.Camera.CameraPos.Sub(meshCenter).Len() <= a.collisionDebugDistance {
-					debugBoxes = append(debugBoxes, debugBox{
-						min:   meshMin,
-						max:   meshMax,
-						color: mgl32.Vec3{1.0, 0.8, 0.2},
-					})
-				}
-			}
-
-			if mesh.IsTransparent() {
-				dist := a.Camera.CameraPos.Sub(mesh.WorldCenter(modelVec)).LenSqr()
-				transparentItems = append(transparentItems, renderItem{
-					mesh:     mesh,
-					modelMat: modelVec,
-					distance: dist,
-				})
+	a.World.Read(func(entities []*Entity) {
+		for _, entity := range entities {
+			if entity.Renderer == nil || entity.Renderer.Model == nil {
 				continue
 			}
-			opaqueItems = append(opaqueItems, renderItem{
-				mesh:     mesh,
-				modelMat: modelVec,
-			})
-		}
-	}
-	a.modelsMu.RUnlock()
+			model := entity.Renderer.Model
+			modelMat := entity.WorldMatrix()
 
-	if utils.GetContext().CollisionDebug && utils.GetContext().PlayerGravityMode {
-		playerMin, playerMax := a.playerAABB(a.Camera.CameraPos)
+			if a.State.CollisionDebug {
+				a.appendDebugBox(&debugBoxes, entity.WorldAABB(), mgl32.Vec3{1.0, 0.2, 0.2})
+			}
+
+			for i := range model.Meshes {
+				mesh := &model.Meshes[i]
+				if a.State.CollisionDebug {
+					a.appendDebugBox(&debugBoxes, mesh.WorldAABB(modelMat), mgl32.Vec3{1.0, 0.8, 0.2})
+				}
+
+				if mesh.IsTransparent() {
+					dist := a.Camera.CameraPos.Sub(mesh.WorldCenter(modelMat)).LenSqr()
+					transparentItems = append(transparentItems, renderItem{
+						mesh:     mesh,
+						modelMat: modelMat,
+						distance: dist,
+					})
+					continue
+				}
+				opaqueItems = append(opaqueItems, renderItem{
+					mesh:     mesh,
+					modelMat: modelMat,
+				})
+			}
+		}
+	})
+
+	if a.State.CollisionDebug && a.State.PlayerGravityMode {
+		player := a.playerAABB(a.Camera.CameraPos)
 		debugBoxes = append(debugBoxes, debugBox{
-			min:   playerMin,
-			max:   playerMax,
+			min:   player.Min,
+			max:   player.Max,
 			color: mgl32.Vec3{0.2, 1.0, 0.2},
 		})
 	}
@@ -437,7 +398,7 @@ func (a *App) render() {
 		item.mesh.DrawPass(shader, true)
 	}
 
-	if utils.GetContext().CollisionDebug {
+	if a.State.CollisionDebug {
 		a.debugBoxShader.Use()
 		a.debugBoxShader.SetMat4("projection", a.Camera.ComputeProjection(a.width, a.height))
 		a.debugBoxShader.SetMat4("view", a.Camera.ComputeView())
@@ -452,44 +413,57 @@ func (a *App) render() {
 }
 
 func (a *App) fixedUpdate() {
-	a.modelsMu.Lock()
-	defer a.modelsMu.Unlock()
+	a.World.Write(func(entities []*Entity) {
+		if a.State.GravityEnabled {
+			a.stepBodies(entities)
+		}
+		a.stepPlayer(entities)
+	})
+}
 
-	if utils.GetContext().GravityEnabled {
-		for _, model := range a.models {
-			if model.IsStatic {
+// stepBodies integrates the dynamic entities and separates them from everything
+// they end up overlapping.
+func (a *App) stepBodies(entities []*Entity) {
+	for _, entity := range entities {
+		if entity.Body == nil || entity.Body.Static {
+			continue
+		}
+
+		entity.Body.Velocity = entity.Body.Velocity.Add(a.gravityDirection.Mul(a.gravityStrength * a.physicsDeltaTime))
+		entity.Translate(entity.Body.Velocity.Mul(a.physicsDeltaTime))
+
+		for _, other := range entities {
+			if other == entity {
 				continue
 			}
 
-			model.Velocity = model.Velocity.Add(a.gravityDirection.Mul(a.gravityStrength * a.physicsDeltaTime))
-			model.Coordinates = model.Coordinates.Add(model.Velocity.Mul(a.physicsDeltaTime))
-
-			for _, other := range a.models {
-				if other.Id == model.Id {
-					continue
-				}
-				if !model.Intersects(other) {
-					continue
-				}
-
-				separation := model.CollisionSeparation(other)
-				if separation == (mgl32.Vec3{}) {
-					continue
-				}
-
-				model.Coordinates = model.Coordinates.Add(separation)
-				zeroVelocityOnSeparation(&model.Velocity, separation)
+			box := entity.WorldAABB()
+			otherBox := other.WorldAABB()
+			if !box.Intersects(otherBox) {
+				continue
 			}
+
+			separation := box.Separation(otherBox)
+			if separation == (mgl32.Vec3{}) {
+				continue
+			}
+
+			entity.Translate(separation)
+			zeroVelocityOnSeparation(&entity.Body.Velocity, separation)
 		}
 	}
+}
 
-	if !utils.GetContext().PlayerGravityMode {
+// stepPlayer moves the player capsule and resolves it against per-mesh bounds,
+// which is finer-grained than the per-entity boxes used above.
+func (a *App) stepPlayer(entities []*Entity) {
+	if !a.State.PlayerGravityMode {
 		a.playerVelocity = mgl32.Vec3{0, 0, 0}
 		a.playerGrounded = false
 		return
 	}
 
-	if utils.GetContext().GravityEnabled {
+	if a.State.GravityEnabled {
 		a.playerVelocity = a.playerVelocity.Add(a.gravityDirection.Mul(a.gravityStrength * a.physicsDeltaTime))
 	}
 
@@ -502,15 +476,15 @@ func (a *App) fixedUpdate() {
 	a.Camera.CameraPos = a.Camera.CameraPos.Add(a.playerVelocity.Mul(a.physicsDeltaTime))
 	a.playerGrounded = false
 
-	for _, model := range a.models {
-		modelMat := mgl32.Ident4()
-		modelMat = modelMat.Mul4(mgl32.Translate3D(model.Coordinates.X(), model.Coordinates.Y(), model.Coordinates.Z()))
-		modelMat = modelMat.Mul4(mgl32.HomogRotate3D(mgl32.DegToRad(model.Rotation.W()), model.Rotation.Vec3()))
-		modelMat = modelMat.Mul4(mgl32.Scale3D(model.Scale.X(), model.Scale.Y(), model.Scale.Z()))
+	for _, entity := range entities {
+		if entity.Renderer == nil || entity.Renderer.Model == nil {
+			continue
+		}
 
-		for i := range model.Meshes {
-			meshMin, meshMax := model.Meshes[i].WorldAABB(modelMat)
-			separation := a.playerAABBCollisionSeparation(a.Camera.CameraPos, meshMin, meshMax)
+		modelMat := entity.WorldMatrix()
+		for i := range entity.Renderer.Model.Meshes {
+			meshBox := entity.Renderer.Model.Meshes[i].WorldAABB(modelMat)
+			separation := a.playerAABB(a.Camera.CameraPos).Separation(meshBox)
 			if separation == (mgl32.Vec3{}) {
 				continue
 			}
@@ -536,56 +510,23 @@ func zeroVelocityOnSeparation(velocity *mgl32.Vec3, separation mgl32.Vec3) {
 	}
 }
 
-func (a *App) playerAABB(cameraPos mgl32.Vec3) (mgl32.Vec3, mgl32.Vec3) {
+// playerAABB is the capsule stand-in, an axis-aligned box hanging below the
+// camera by playerCenterOffset.
+func (a *App) playerAABB(cameraPos mgl32.Vec3) object.AABB {
 	center := cameraPos.Add(a.playerCenterOffset)
-	return center.Sub(a.playerHalfExtents), center.Add(a.playerHalfExtents)
+	return object.AABB{
+		Min: center.Sub(a.playerHalfExtents),
+		Max: center.Add(a.playerHalfExtents),
+	}
 }
 
-func (a *App) playerAABBCollisionSeparation(cameraPos mgl32.Vec3, otherMin, otherMax mgl32.Vec3) mgl32.Vec3 {
-	playerMin, playerMax := a.playerAABB(cameraPos)
-
-	overlapX := minf(playerMax.X(), otherMax.X()) - maxf(playerMin.X(), otherMin.X())
-	overlapY := minf(playerMax.Y(), otherMax.Y()) - maxf(playerMin.Y(), otherMin.Y())
-	overlapZ := minf(playerMax.Z(), otherMax.Z()) - maxf(playerMin.Z(), otherMin.Z())
-	if overlapX <= 0 || overlapY <= 0 || overlapZ <= 0 {
-		return mgl32.Vec3{0, 0, 0}
+// appendDebugBox records a collision box if it is close enough to be worth
+// drawing.
+func (a *App) appendDebugBox(boxes *[]debugBox, box object.AABB, color mgl32.Vec3) {
+	if a.Camera.CameraPos.Sub(box.Center()).Len() > a.collisionDebugDistance {
+		return
 	}
-
-	playerCenter := playerMin.Add(playerMax).Mul(0.5)
-	otherCenter := otherMin.Add(otherMax).Mul(0.5)
-
-	if overlapX <= overlapY && overlapX <= overlapZ {
-		if playerCenter.X() < otherCenter.X() {
-			return mgl32.Vec3{-overlapX, 0, 0}
-		}
-		return mgl32.Vec3{overlapX, 0, 0}
-	}
-
-	if overlapY <= overlapX && overlapY <= overlapZ {
-		if playerCenter.Y() < otherCenter.Y() {
-			return mgl32.Vec3{0, -overlapY, 0}
-		}
-		return mgl32.Vec3{0, overlapY, 0}
-	}
-
-	if playerCenter.Z() < otherCenter.Z() {
-		return mgl32.Vec3{0, 0, -overlapZ}
-	}
-	return mgl32.Vec3{0, 0, overlapZ}
-}
-
-func minf(a, b float32) float32 {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func maxf(a, b float32) float32 {
-	if a > b {
-		return a
-	}
-	return b
+	*boxes = append(*boxes, debugBox{min: box.Min, max: box.Max, color: color})
 }
 
 func (a *App) computeLight(shader *shaders.Shader) {
@@ -608,7 +549,7 @@ func (a *App) computeLight(shader *shaders.Shader) {
 	// }
 
 	// Spot light
-	if utils.GetContext().FlashLight {
+	if a.State.FlashLight {
 		shader.SetVec3Val("spotLight.position", a.Camera.CameraPos)
 		shader.SetVec3Val("spotLight.direction", a.Camera.CameraFront)
 		shader.SetVec3("spotLight.ambient", 0.0, 0.0, 0.0)

@@ -48,92 +48,59 @@ func NewCamera(config *utils.Config) *Camera {
 	}
 }
 
-func (c *Camera) processForward(isRunning bool, deltaTime *float32) {
-	var cameraSpeed float32
+// Step returns the distance to travel this frame.
+func (c *Camera) Step(isRunning bool, deltaTime float32) float32 {
+	speed := c.CameraSpeed
 	if isRunning {
-		cameraSpeed = c.CameraSpeed * 2.0
-	} else {
-		cameraSpeed = c.CameraSpeed
+		speed *= 2.0
 	}
-
-	curCameraSpeed := cameraSpeed * *deltaTime
-	forward := c.CameraFront
-	if utils.GetContext().PlayerGravityMode {
-		forward = mgl32.Vec3{c.CameraFront.X(), 0, c.CameraFront.Z()}
-		if forward.LenSqr() < 1e-6 {
-			return
-		}
-		forward = forward.Normalize()
-	}
-	c.CameraPos = c.CameraPos.Add(forward.Mul(curCameraSpeed))
+	return speed * deltaTime
 }
 
-func (c *Camera) processLeft(isRunning bool, deltaTime *float32) {
-	var cameraSpeed float32
-	if isRunning {
-		cameraSpeed = c.CameraSpeed * 2.0
-	} else {
-		cameraSpeed = c.CameraSpeed
+// forward returns the view direction, flattened onto the XZ plane when planar
+// is set so that looking up or down does not lift a walking player.
+func (c *Camera) forward(planar bool) (mgl32.Vec3, bool) {
+	if !planar {
+		return c.CameraFront, true
 	}
 
-	curCameraSpeed := cameraSpeed * *deltaTime
-	c.CameraPos = c.CameraPos.Sub(c.CameraRight.Mul(curCameraSpeed))
+	flat := mgl32.Vec3{c.CameraFront.X(), 0, c.CameraFront.Z()}
+	if flat.LenSqr() < 1e-6 {
+		return mgl32.Vec3{}, false
+	}
+	return flat.Normalize(), true
 }
 
-func (c *Camera) processBack(isRunning bool, deltaTime *float32) {
-	var cameraSpeed float32
-	if isRunning {
-		cameraSpeed = c.CameraSpeed * 2.0
-	} else {
-		cameraSpeed = c.CameraSpeed
+func (c *Camera) ProcessForward(isRunning, planar bool, deltaTime float32) {
+	forward, ok := c.forward(planar)
+	if !ok {
+		return
 	}
-
-	curCameraSpeed := cameraSpeed * *deltaTime
-	forward := c.CameraFront
-	if utils.GetContext().PlayerGravityMode {
-		forward = mgl32.Vec3{c.CameraFront.X(), 0, c.CameraFront.Z()}
-		if forward.LenSqr() < 1e-6 {
-			return
-		}
-		forward = forward.Normalize()
-	}
-	c.CameraPos = c.CameraPos.Sub(forward.Mul(curCameraSpeed))
+	c.CameraPos = c.CameraPos.Add(forward.Mul(c.Step(isRunning, deltaTime)))
 }
 
-func (c *Camera) processRight(isRunning bool, deltaTime *float32) {
-	var cameraSpeed float32
-	if isRunning {
-		cameraSpeed = c.CameraSpeed * 2.0
-	} else {
-		cameraSpeed = c.CameraSpeed
+func (c *Camera) ProcessBack(isRunning, planar bool, deltaTime float32) {
+	forward, ok := c.forward(planar)
+	if !ok {
+		return
 	}
-
-	curCameraSpeed := cameraSpeed * *deltaTime
-	c.CameraPos = c.CameraPos.Add(c.CameraRight.Mul(curCameraSpeed))
+	c.CameraPos = c.CameraPos.Sub(forward.Mul(c.Step(isRunning, deltaTime)))
 }
 
-func (c *Camera) processUp(isRunning bool, deltaTime *float32) {
-	var cameraSpeed float32
-	if isRunning {
-		cameraSpeed = c.CameraSpeed * 2.0
-	} else {
-		cameraSpeed = c.CameraSpeed
-	}
-
-	curCameraSpeed := cameraSpeed * *deltaTime
-	c.CameraPos = c.CameraPos.Add(c.CameraUp.Mul(curCameraSpeed))
+func (c *Camera) ProcessLeft(isRunning bool, deltaTime float32) {
+	c.CameraPos = c.CameraPos.Sub(c.CameraRight.Mul(c.Step(isRunning, deltaTime)))
 }
 
-func (c *Camera) processDown(isRunning bool, deltaTime *float32) {
-	var cameraSpeed float32
-	if isRunning {
-		cameraSpeed = c.CameraSpeed * 2.0
-	} else {
-		cameraSpeed = c.CameraSpeed
-	}
+func (c *Camera) ProcessRight(isRunning bool, deltaTime float32) {
+	c.CameraPos = c.CameraPos.Add(c.CameraRight.Mul(c.Step(isRunning, deltaTime)))
+}
 
-	curCameraSpeed := cameraSpeed * *deltaTime
-	c.CameraPos = c.CameraPos.Sub(c.CameraUp.Mul(curCameraSpeed))
+func (c *Camera) ProcessUp(isRunning bool, deltaTime float32) {
+	c.CameraPos = c.CameraPos.Add(c.CameraUp.Mul(c.Step(isRunning, deltaTime)))
+}
+
+func (c *Camera) ProcessDown(isRunning bool, deltaTime float32) {
+	c.CameraPos = c.CameraPos.Sub(c.CameraUp.Mul(c.Step(isRunning, deltaTime)))
 }
 
 func (c *Camera) MouseCallback(window *glfw.Window, xpos, ypos float64) {

@@ -12,11 +12,11 @@ func init() {
 }
 
 func main() {
-	utils.ParseArgs()
+	args := utils.ParseArgs()
 
 	app, err := engine.New(engine.Options{
-		ConfigPath: utils.GetContext().ConfigPath,
-		ScenePath:  utils.GetContext().ScenePath,
+		ConfigPath: args.ConfigPath,
+		ScenePath:  args.ScenePath,
 	})
 	if err != nil {
 		utils.Logger().Fatalln(err)

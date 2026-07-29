@@ -5,28 +5,22 @@ import (
 	tex "3d-engine/textures"
 	"3d-engine/utils"
 	"fmt"
-	"log"
 	"path/filepath"
 
 	"github.com/bloeys/assimp-go/asig"
 	"github.com/go-gl/mathgl/mgl32"
 )
 
+// Model is a renderable asset: geometry, materials and the bounds fitted around
+// them. It carries no placement — where it appears in the world is the Entity's
+// business — so one Model can back several entities.
 type Model struct {
-	Id             uint32
-	Name           string
+	Path           string
 	Meshes         []Mesh
 	Directory      string
 	TexturesLoaded []Texture
 
-	Coordinates mgl32.Vec3
-	Rotation    mgl32.Vec4 // W is for the angle
-	Scale       mgl32.Vec3
-	Velocity    mgl32.Vec3
-	IsStatic    bool
-
-	localBoundsMin mgl32.Vec3
-	localBoundsMax mgl32.Vec3
+	localBounds    AABB
 	hasLocalBounds bool
 }
 
@@ -36,10 +30,11 @@ func (m *Model) Draw(shader *shaders.Shader) {
 	}
 }
 
-func (m *Model) LoadScene(path string) error {
-	if utils.GetContext().DebugLevel > utils.NoDebug {
-		log.Default().Println("Importing file: ", path)
-	}
+// Import loads a model file into GPU-backed meshes. It was called LoadScene,
+// which collided confusingly with SceneManager.LoadScene.
+func (m *Model) Import(path string) error {
+	utils.Logger().Infoln("Importing file: ", path)
+	m.Path = path
 	scene, release, err := asig.ImportFile(path, asig.PostProcessTriangulate|asig.PostProcessJoinIdenticalVertices|asig.PostProcessOptimizeMeshes|asig.PostProcessFlipUVs|asig.PostProcessSplitLargeMeshes|asig.PostProcessGenNormals)
 	if err != nil {
 		return fmt.Errorf("failed to import model %q: %w", path, err)
@@ -56,9 +51,7 @@ func (m *Model) LoadScene(path string) error {
 }
 
 func (m *Model) processNode(node *asig.Node, scene *asig.Scene) error {
-	if utils.GetContext().DebugLevel > utils.NoDebug {
-		log.Default().Println("Processing node: ", node.Name)
-	}
+	utils.Logger().Infoln("Processing node: ", node.Name)
 	for i := 0; i < len(node.MeshIndicies); i++ {
 		mesh := scene.Meshes[node.MeshIndicies[i]]
 		processedMesh, err := m.processMesh(mesh, scene)

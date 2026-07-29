@@ -26,22 +26,33 @@ func OffsetOf[T any](fieldName string) (uintptr, error) {
 	return field.Offset, nil
 }
 
-func ParseArgs() {
+// Args is the parsed command line. The caller feeds it into the engine rather
+// than the engine reaching for a global.
+type Args struct {
+	ConfigPath string
+	ScenePath  string
+	DebugLevel DebugLevel
+}
+
+// ParseArgs parses the command line and applies the verbosity to the logger.
+func ParseArgs() Args {
 	var opts struct {
 		Verbose []bool `short:"v" long:"verbose" description:"Show verbose debug information"`
 		Config  string `short:"c" long:"config" description:"The path to the config" default:"./config.yml"`
 		Scene   string `short:"s" long:"scene" description:"The path to the scene" default:"./scene.yml"`
 	}
 
-	context := GetContext()
-
 	_, err := flags.Parse(&opts)
 	if err != nil {
 		os.Exit(1)
 	}
 
-	context.DebugLevel = DebugLevel(len(opts.Verbose))
+	level := DebugLevel(len(opts.Verbose))
+	Logger().SetLevel(level)
 
-	context.ConfigPath = opts.Config
-	context.ScenePath = opts.Scene
+	return Args{
+		ConfigPath: opts.Config,
+		ScenePath:  opts.Scene,
+		DebugLevel: level,
+	}
 }
