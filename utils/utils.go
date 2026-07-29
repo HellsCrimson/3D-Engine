@@ -32,14 +32,16 @@ type Args struct {
 	ConfigPath string
 	ScenePath  string
 	DebugLevel DebugLevel
+	NoEditor   bool
 }
 
 // ParseArgs parses the command line and applies the verbosity to the logger.
 func ParseArgs() Args {
 	var opts struct {
-		Verbose []bool `short:"v" long:"verbose" description:"Show verbose debug information"`
-		Config  string `short:"c" long:"config" description:"The path to the config" default:"./config.yml"`
-		Scene   string `short:"s" long:"scene" description:"The path to the scene" default:"./scene.yml"`
+		Verbose  []bool `short:"v" long:"verbose" description:"Show verbose debug information"`
+		Config   string `short:"c" long:"config" description:"The path to the config" default:"./config.yml"`
+		Scene    string `short:"s" long:"scene" description:"The path to the scene" default:"./scene.yml"`
+		NoEditor bool   `long:"no-editor" description:"Run without the in-process editor overlay"`
 	}
 
 	_, err := flags.Parse(&opts)
@@ -54,5 +56,6 @@ func ParseArgs() Args {
 		ConfigPath: opts.Config,
 		ScenePath:  opts.Scene,
 		DebugLevel: level,
+		NoEditor:   opts.NoEditor,
 	}
 }

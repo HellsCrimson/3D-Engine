@@ -133,6 +133,9 @@ type App struct {
 
 	collisionDebugDistance float32
 
+	// overlay draws the editor UI on top of the finished frame, if one is set.
+	overlay Overlay
+
 	rpc             *grpc.Server
 	glfwInitialized bool
 }
@@ -196,8 +199,20 @@ func New(opts Options) (*App, error) {
 	}
 	a.resetDynamicState()
 
-	a.Window.SetCursorPosCallback(a.Camera.MouseCallback)
-	a.Window.SetScrollCallback(a.Camera.ScrollCallback)
+	// Wrapped rather than passed straight through, so an overlay using the
+	// pointer does not also spin the camera.
+	a.Window.SetCursorPosCallback(func(w *glfw.Window, xpos, ypos float64) {
+		if a.overlayCapturesMouse() {
+			return
+		}
+		a.Camera.MouseCallback(w, xpos, ypos)
+	})
+	a.Window.SetScrollCallback(func(w *glfw.Window, xoff, yoff float64) {
+		if a.overlayCapturesMouse() {
+			return
+		}
+		a.Camera.ScrollCallback(w, xoff, yoff)
+	})
 	a.registerDefaultKeys()
 
 	if !a.rpcDisabled() {
@@ -335,6 +350,10 @@ func (a *App) Run() error {
 
 		a.render()
 
+		if a.overlay != nil {
+			a.overlay.Frame(a)
+		}
+
 		a.Window.SwapBuffers()
 		glfw.PollEvents()
 	}
@@ -347,6 +366,11 @@ func (a *App) Run() error {
 func (a *App) Close() {
 	// Release anyone blocked in Do before the loop stops draining.
 	a.commands.close()
+
+	if a.overlay != nil {
+		a.overlay.Close()
+		a.overlay = nil
+	}
 
 	// Drop the live scene so shutdown frees what it allocated. Clearing the
 	// world first runs OnDestroy while the models are still valid; releasing
@@ -696,6 +720,16 @@ func (a *App) processInput() {
 	if a.Window.GetKey(glfw.KeyH) == glfw.Press && glfw.GetTime()-a.lastGravityAxisToggle >= 0.3 {
 		a.lastGravityAxisToggle = glfw.GetTime()
 		a.cycleGravityAxis()
+	}
+
+	// While the overlay owns the keyboard, typing in a text field must not also
+	// drive the camera. The keys are still tracked as released so nothing
+	// latches down.
+	if a.overlayCapturesKeyboard() {
+		for i := glfw.KeySpace; i < glfw.KeyLast; i++ {
+			a.Keys.IsPressed[i] = false
+		}
+		return
 	}
 
 	for i := glfw.KeySpace; i < glfw.KeyLast; i++ {

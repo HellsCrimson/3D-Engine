@@ -12,6 +12,7 @@ require (
 )
 
 require (
+	github.com/AllenDang/cimgui-go v1.2.0 // indirect
 	golang.org/x/exp v0.0.0-20250106191152-7588d65b2ba8 // indirect
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/sys v0.39.0 // indirect

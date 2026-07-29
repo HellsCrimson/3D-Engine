@@ -4,7 +4,10 @@ build:
 run:
 	go run .
 
-run-all:
+# The editor is drawn inside the engine window now, so `make run` is the whole
+# app. This target additionally starts the standalone gRPC client in ui/, which
+# is only needed to exercise the RPC surface from another process.
+run-with-external-ui:
 	go run . & \
 	cd ui && go run . & \
 	wait
