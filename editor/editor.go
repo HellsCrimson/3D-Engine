@@ -34,6 +34,10 @@ type Editor struct {
 	sceneModes    []string
 	selectedScene int
 
+	// status shows the last failed operation, e.g. editing an entity that was
+	// despawned between frames.
+	status string
+
 	visible bool
 }
 

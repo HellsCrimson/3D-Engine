@@ -8,13 +8,6 @@ import (
 	"github.com/AllenDang/cimgui-go/imgui"
 )
 
-// entityRow is one line of the object list, snapshotted under the world lock so
-// the widgets never touch a live entity pointer.
-type entityRow struct {
-	handle engine.Handle
-	name   string
-}
-
 func (e *Editor) draw() {
 	imgui.BeginV("3D Engine", nil, imgui.WindowFlagsAlwaysAutoResize)
 
@@ -59,19 +52,10 @@ func (e *Editor) drawStats() {
 	}
 }
 
-// entityRows snapshots the world. Names and handles are copied out so the rest
-// of the frame can run without holding the lock.
-func (e *Editor) entityRows() []entityRow {
-	var rows []entityRow
-
-	e.app.World.Read(func(entities []*engine.Entity) {
-		rows = make([]entityRow, 0, len(entities))
-		for _, entity := range entities {
-			rows = append(rows, entityRow{handle: entity.Handle(), name: entity.Name})
-		}
-	})
-
-	return rows
+// entityRows snapshots the world through the engine's object API, the same one
+// the gRPC GET_OBJECTS handler uses.
+func (e *Editor) entityRows() []engine.ObjectInfo {
+	return e.app.ListObjects()
 }
 
 func (e *Editor) drawSceneModes() {
@@ -115,7 +99,7 @@ func (e *Editor) drawSceneModes() {
 	}
 }
 
-func (e *Editor) drawEntityList(rows []entityRow) {
+func (e *Editor) drawEntityList(rows []engine.ObjectInfo) {
 	if imgui.BeginTable("Objects", 3) {
 		imgui.TableSetupColumnV("Name", imgui.TableColumnFlagsWidthStretch, 0, 0)
 		imgui.TableSetupColumnV("Handle", imgui.TableColumnFlagsWidthFixed, 80, 0)
@@ -126,14 +110,15 @@ func (e *Editor) drawEntityList(rows []entityRow) {
 			imgui.PushIDStr(fmt.Sprintf("object-%d", i))
 
 			imgui.TableNextColumn()
-			imgui.Text(row.name)
+			imgui.Text(row.Name)
 
 			imgui.TableNextColumn()
-			imgui.Text(fmt.Sprintf("%d v%d", row.handle.Index, row.handle.Generation))
+			imgui.Text(fmt.Sprintf("%d v%d", row.Handle.Index, row.Handle.Generation))
 
 			imgui.TableNextColumn()
 			if imgui.Button("Select") {
-				e.selected = row.handle
+				e.selected = row.Handle
+				e.status = ""
 			}
 
 			imgui.PopID()
@@ -151,8 +136,8 @@ func (e *Editor) drawInspector() {
 
 	// The handle stops resolving after a despawn or a scene switch, which is
 	// exactly the stale-reference case the generation counter exists to catch.
-	entity := e.app.World.Get(e.selected)
-	if entity == nil {
+	info, ok := e.app.ObjectInfo(e.selected)
+	if !ok {
 		imgui.Text(fmt.Sprintf("Object %s no longer exists", e.selected))
 		if imgui.Button("Clear selection") {
 			e.selected = engine.NoHandle
@@ -160,14 +145,17 @@ func (e *Editor) drawInspector() {
 		return
 	}
 
-	imgui.Text(fmt.Sprintf("Name: %s", entity.Name))
+	imgui.Text(fmt.Sprintf("Name: %s", info.Name))
 	imgui.Text(fmt.Sprintf("Handle: %d v%d", e.selected.Index, e.selected.Generation))
+	if info.Model != "" {
+		imgui.Text(fmt.Sprintf("Model: %s", info.Model))
+	}
 
 	// Track the entity except while a widget is being dragged: otherwise the
 	// physics step would overwrite the value under the user's cursor every
 	// frame.
 	if !imgui.IsAnyItemActive() {
-		e.draft = entity.Transform()
+		e.draft = info.Transform
 	}
 
 	imgui.Checkbox("Auto apply", &e.autoApply)
@@ -208,21 +196,28 @@ func (e *Editor) drawInspector() {
 
 	apply := imgui.Button("Apply")
 	if (e.autoApply && changed) || apply {
-		// Straight into the World API — the same call the gRPC handler makes,
-		// with no serialization in between.
+		// The same call the gRPC handler makes, minus the serialization.
 		draft := e.draft
-		e.app.World.Mutate(e.selected, func(target *engine.Entity) {
-			target.SetTransform(draft)
-		})
+		if err := e.app.UpdateTransform(e.selected, func(t *engine.Transform) {
+			*t = draft
+		}); err != nil {
+			e.status = err.Error()
+		}
 	}
 
 	imgui.SameLine()
 	if imgui.Button("Despawn") {
+		// Deferred, not direct: DespawnObject releases the model back to the
+		// asset cache, which is GL work and belongs on the frame loop. Going
+		// through World.Despawn instead would drop the entity and leak it.
 		handle := e.selected
 		e.app.Defer(func(a *engine.App) error {
-			a.World.Despawn(handle)
-			return nil
+			return a.DespawnObject(handle)
 		})
 		e.selected = engine.NoHandle
+	}
+
+	if e.status != "" {
+		imgui.Text(e.status)
 	}
 }

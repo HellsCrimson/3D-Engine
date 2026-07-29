@@ -1,2 +1,6 @@
 testObjects
 3DEngine
+ui/3DEngineGUI
+
+# Dear ImGui writes its window layout here at runtime.
+imgui.ini

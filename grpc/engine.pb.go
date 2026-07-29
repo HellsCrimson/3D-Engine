@@ -400,10 +400,13 @@ func (x *Objects) GetObjects() []*Object {
 }
 
 type Object struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Id            uint64                 `protobuf:"varint,2,opt,name=id,proto3" json:"id,omitempty"`
-	Location      *Location              `protobuf:"bytes,3,opt,name=location,proto3" json:"location,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Name     string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Id       uint64                 `protobuf:"varint,2,opt,name=id,proto3" json:"id,omitempty"`
+	Location *Location              `protobuf:"bytes,3,opt,name=location,proto3" json:"location,omitempty"`
+	// Asset path, used by ADD_OBJECT to say what to load. Populated on read so a
+	// client can round-trip an object it fetched.
+	Model         string `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -457,6 +460,13 @@ func (x *Object) GetLocation() *Location {
 		return x.Location
 	}
 	return nil
+}
+
+func (x *Object) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
 }
 
 type Location struct {
@@ -871,11 +881,12 @@ const file_grpc_engine_proto_rawDesc = "" +
 	"sceneModesB\x06\n" +
 	"\x04body\"1\n" +
 	"\aObjects\x12&\n" +
-	"\aobjects\x18\x01 \x03(\v2\f.grpc.ObjectR\aobjects\"X\n" +
+	"\aobjects\x18\x01 \x03(\v2\f.grpc.ObjectR\aobjects\"n\n" +
 	"\x06Object\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\x04R\x02id\x12*\n" +
-	"\blocation\x18\x03 \x01(\v2\x0e.grpc.LocationR\blocation\"\x85\x01\n" +
+	"\blocation\x18\x03 \x01(\v2\x0e.grpc.LocationR\blocation\x12\x14\n" +
+	"\x05model\x18\x04 \x01(\tR\x05model\"\x85\x01\n" +
 	"\bLocation\x12)\n" +
 	"\bposition\x18\x01 \x01(\v2\r.grpc.Vector3R\bposition\x12)\n" +
 	"\brotation\x18\x02 \x01(\v2\r.grpc.Vector4R\brotation\x12#\n" +

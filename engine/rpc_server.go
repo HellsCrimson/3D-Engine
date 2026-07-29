@@ -76,9 +76,20 @@ func (eg *engineServer) handleRequest(req *egrpc.EngineRequest) *egrpc.EngineRes
 			},
 		}
 	case egrpc.Operation_OPERATION_ADD_OBJECT:
-		return errorResponse(egrpc.Operation_OPERATION_ADD_OBJECT, status.Error(codes.Unimplemented, "add object is not implemented"))
+		created, err := eg.addObject(req.GetObject())
+		if err != nil {
+			return errorResponse(egrpc.Operation_OPERATION_ADD_OBJECT, err)
+		}
+		return &egrpc.EngineResponse{
+			Operation: egrpc.Operation_OPERATION_ADD_OBJECT,
+			Success:   true,
+			Body:      &egrpc.EngineResponse_Object{Object: created},
+		}
 	case egrpc.Operation_OPERATION_REMOVE_OBJECT:
-		return errorResponse(egrpc.Operation_OPERATION_REMOVE_OBJECT, status.Error(codes.Unimplemented, "remove object is not implemented"))
+		if err := eg.removeObject(req.GetObject()); err != nil {
+			return errorResponse(egrpc.Operation_OPERATION_REMOVE_OBJECT, err)
+		}
+		return emptySuccessResponse(egrpc.Operation_OPERATION_REMOVE_OBJECT)
 	case egrpc.Operation_OPERATION_MOVE_OBJECT:
 		if err := eg.moveObject(req.GetObject()); err != nil {
 			return errorResponse(egrpc.Operation_OPERATION_MOVE_OBJECT, err)
@@ -141,50 +152,97 @@ func errorResponse(op egrpc.Operation, err error) *egrpc.EngineResponse {
 }
 
 func (eg *engineServer) getObjects() *egrpc.Objects {
-	objects := &egrpc.Objects{
-		Objects: []*egrpc.Object{},
+	infos := eg.app.ListObjects()
+
+	objects := &egrpc.Objects{Objects: make([]*egrpc.Object, 0, len(infos))}
+	for _, info := range infos {
+		objects.Objects = append(objects.Objects, toProtoObject(info))
 	}
-
-	eg.app.World.Read(func(entities []*Entity) {
-		for _, entity := range entities {
-			transform := entity.Transform()
-			objects.Objects = append(objects.Objects, &egrpc.Object{
-				Id:   entity.Handle().Encode(),
-				Name: entity.Name,
-				Location: &egrpc.Location{
-					Position: &egrpc.Vector3{
-						X: transform.Position.X(),
-						Y: transform.Position.Y(),
-						Z: transform.Position.Z(),
-					},
-					Rotation: &egrpc.Vector4{
-						X: transform.Rotation.X(),
-						Y: transform.Rotation.Y(),
-						Z: transform.Rotation.Z(),
-						W: transform.Rotation.W(),
-					},
-					Scale: &egrpc.Vector3{
-						X: transform.Scale.X(),
-						Y: transform.Scale.Y(),
-						Z: transform.Scale.Z(),
-					},
-				},
-			})
-		}
-	})
-
 	return objects
 }
 
-// mutate applies fn to the addressed entity. A handle that no longer resolves —
-// because the entity was despawned or the scene was reloaded — is a NotFound
-// rather than a silent write to whatever now occupies the slot.
-func (eg *engineServer) mutate(id uint64, fn func(e *Entity)) error {
-	handle := DecodeHandle(id)
-	if eg.app.World.Mutate(handle, fn) {
-		return nil
+// toProtoObject is the only place engine types become wire types.
+func toProtoObject(info ObjectInfo) *egrpc.Object {
+	return &egrpc.Object{
+		Id:    info.Handle.Encode(),
+		Name:  info.Name,
+		Model: info.Model,
+		Location: &egrpc.Location{
+			Position: &egrpc.Vector3{
+				X: info.Transform.Position.X(),
+				Y: info.Transform.Position.Y(),
+				Z: info.Transform.Position.Z(),
+			},
+			Rotation: &egrpc.Vector4{
+				X: info.Transform.Rotation.X(),
+				Y: info.Transform.Rotation.Y(),
+				Z: info.Transform.Rotation.Z(),
+				W: info.Transform.Rotation.W(),
+			},
+			Scale: &egrpc.Vector3{
+				X: info.Transform.Scale.X(),
+				Y: info.Transform.Scale.Y(),
+				Z: info.Transform.Scale.Z(),
+			},
+		},
 	}
-	return status.Errorf(codes.NotFound, "object %s not found", handle)
+}
+
+// addObject spawns through the same API a scene file and the editor use. The
+// spawn is queued onto the frame loop because importing a model touches the
+// GPU, so this blocks until the next frame picks it up.
+func (eg *engineServer) addObject(obj *egrpc.Object) (*egrpc.Object, error) {
+	if obj == nil {
+		return nil, status.Error(codes.InvalidArgument, "object is required")
+	}
+
+	spec := ObjectSpec{
+		Name:      obj.GetName(),
+		Model:     obj.GetModel(),
+		Transform: IdentityTransform(),
+	}
+	if obj.Location != nil {
+		spec.Transform = transformFromProto(obj.Location, spec.Transform)
+	}
+
+	handle, err := eg.app.Spawn(spec)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	info, ok := eg.app.ObjectInfo(handle)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "object %s vanished immediately after spawn", handle)
+	}
+	return toProtoObject(info), nil
+}
+
+func (eg *engineServer) removeObject(obj *egrpc.Object) error {
+	if obj == nil {
+		return status.Error(codes.InvalidArgument, "object is required")
+	}
+
+	handle := DecodeHandle(obj.GetId())
+	if err := eg.app.Despawn(handle); err != nil {
+		return status.Errorf(codes.NotFound, "%v", err)
+	}
+	return nil
+}
+
+// transformFromProto fills in only the components the request supplied, leaving
+// the rest at the fallback.
+func transformFromProto(location *egrpc.Location, fallback Transform) Transform {
+	transform := fallback
+	if location.Position != nil {
+		transform.Position = toVec3(location.Position)
+	}
+	if location.Rotation != nil {
+		transform.Rotation = toVec4(location.Rotation)
+	}
+	if location.Scale != nil {
+		transform.Scale = toVec3(location.Scale)
+	}
+	return transform
 }
 
 func (eg *engineServer) moveObject(obj *egrpc.Object) error {
@@ -192,8 +250,8 @@ func (eg *engineServer) moveObject(obj *egrpc.Object) error {
 		return status.Error(codes.InvalidArgument, "object.location.position is required")
 	}
 
-	return eg.mutate(obj.Id, func(e *Entity) {
-		e.SetPosition(toVec3(obj.Location.Position))
+	return eg.update(obj.Id, func(t *Transform) {
+		t.Position = toVec3(obj.Location.Position)
 	})
 }
 
@@ -202,8 +260,8 @@ func (eg *engineServer) rotateObject(obj *egrpc.Object) error {
 		return status.Error(codes.InvalidArgument, "object.location.rotation is required")
 	}
 
-	return eg.mutate(obj.Id, func(e *Entity) {
-		e.SetRotation(toVec4(obj.Location.Rotation))
+	return eg.update(obj.Id, func(t *Transform) {
+		t.Rotation = toVec4(obj.Location.Rotation)
 	})
 }
 
@@ -212,8 +270,8 @@ func (eg *engineServer) scaleObject(obj *egrpc.Object) error {
 		return status.Error(codes.InvalidArgument, "object.location.scale is required")
 	}
 
-	return eg.mutate(obj.Id, func(e *Entity) {
-		e.SetScale(toVec3(obj.Location.Scale))
+	return eg.update(obj.Id, func(t *Transform) {
+		t.Scale = toVec3(obj.Location.Scale)
 	})
 }
 
@@ -222,13 +280,20 @@ func (eg *engineServer) updateObject(obj *egrpc.Object) error {
 		return status.Error(codes.InvalidArgument, "object.location with position/rotation/scale is required")
 	}
 
-	return eg.mutate(obj.Id, func(e *Entity) {
-		e.SetTransform(Transform{
-			Position: toVec3(obj.Location.Position),
-			Rotation: toVec4(obj.Location.Rotation),
-			Scale:    toVec3(obj.Location.Scale),
-		})
+	return eg.update(obj.Id, func(t *Transform) {
+		*t = transformFromProto(obj.Location, *t)
 	})
+}
+
+// update translates a wire id into a handle and a miss into a NotFound. A
+// handle that no longer resolves — because the entity was despawned or the
+// scene reloaded — fails rather than writing to whatever now occupies the slot.
+func (eg *engineServer) update(id uint64, fn func(t *Transform)) error {
+	handle := DecodeHandle(id)
+	if err := eg.app.UpdateTransform(handle, fn); err != nil {
+		return status.Errorf(codes.NotFound, "%v", err)
+	}
+	return nil
 }
 
 func toVec3(v *egrpc.Vector3) mgl32.Vec3 {

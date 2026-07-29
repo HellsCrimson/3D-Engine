@@ -55,6 +55,10 @@ message Object {
   uint64 id = 2;
 
   Location location = 3;
+
+  // Asset path, used by ADD_OBJECT to say what to load. Populated on read so a
+  // client can round-trip an object it fetched.
+  string model = 4;
 }
 
 message Location {

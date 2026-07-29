@@ -107,55 +107,51 @@ func (sm *SceneManager) CameraSpawn() scene.CameraSpec {
 	return sm.cameraSpawn
 }
 
-// buildEntity turns one scene-file object into an entity: the model asset, the
-// transform, the built-in body, and whatever registered components the file
-// asked for.
+// buildEntity turns one scene-file object into an ObjectSpec and hands it to
+// the engine's object API, so a scene row and an ADD_OBJECT request build an
+// entity by exactly the same code.
 func (sm *SceneManager) buildEntity(obj *scene.Object) (*Entity, error) {
 	transform := obj.ResolveTransform()
-	entity := NewEntity(obj.Name)
-	entity.SetTransform(Transform{
-		Position: mgl32.Vec3(transform.Position),
-		Rotation: mgl32.Vec4(transform.Rotation),
-		Scale:    mgl32.Vec3(transform.Scale),
-	})
 
-	// A model is optional: an object with only components is a light or a
-	// logic node.
-	if obj.Model != "" {
-		model, err := sm.app.Assets.Acquire(obj.Model)
-		if err != nil {
-			return nil, fmt.Errorf("could not load model %q: %w", obj.Model, err)
-		}
-		entity.Renderer = &MeshRenderer{Model: model}
+	spec := ObjectSpec{
+		Name:  obj.Name,
+		Model: obj.Model,
+		Transform: Transform{
+			Position: mgl32.Vec3(transform.Position),
+			Rotation: mgl32.Vec4(transform.Rotation),
+			Scale:    mgl32.Vec3(transform.Scale),
+		},
 	}
 
-	// Only give the entity a body when the scene asked for one, so a light does
-	// not quietly start falling.
 	if obj.Body != nil {
-		entity.Body = &RigidBody{Static: obj.Body.Static}
+		spec.Body = &RigidBody{Static: obj.Body.Static}
 	}
 
 	for i := range obj.Components {
-		spec := &obj.Components[i]
+		componentSpec := &obj.Components[i]
 
-		component, err := sm.app.Components.New(spec.Type)
+		component, err := sm.app.Components.New(componentSpec.Type)
 		if err != nil {
 			return nil, fmt.Errorf("object %q: %w", obj.Name, err)
 		}
 
-		if spec.HasProps() {
-			if err := spec.Props.Decode(component); err != nil {
-				return nil, fmt.Errorf("object %q: component %q props: %w", obj.Name, spec.Type, err)
+		if componentSpec.HasProps() {
+			if err := componentSpec.Props.Decode(component); err != nil {
+				return nil, fmt.Errorf("object %q: component %q props: %w",
+					obj.Name, componentSpec.Type, err)
 			}
 		}
 
-		entity.AddComponent(component)
+		spec.Components = append(spec.Components, component)
 	}
 
-	return entity, nil
+	// BuildObject rather than SpawnObject: the whole scene is assembled before
+	// the old one is torn down, so nothing is added to the world yet.
+	return sm.app.BuildObject(spec)
 }
 
-// releaseEntities returns each entity's model to the cache.
+// releaseEntities returns each entity's model to the cache. Used for the
+// outgoing scene after a swap, and at shutdown.
 func (sm *SceneManager) releaseEntities(entities []*Entity) {
 	for _, entity := range entities {
 		if entity.Renderer == nil || entity.Renderer.Model == nil {
