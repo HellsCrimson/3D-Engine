@@ -32,3 +32,39 @@ objects:
           followCamera: true
           cutOff: 12.5
           outerCutOff: 15.0
+
+  # Two point lights carried around the atrium by a game component. An orbiting
+  # light is the clearest proof the component pipeline runs: the shading on the
+  # walls tracks it. Sharing a centre and differing only in phase puts them on
+  # opposite sides of the same circle.
+  - name: orbiting-lamp-warm
+    components:
+      - type: PointLight
+        props:
+          diffuse: [1.0, 0.6, 0.2]
+          specular: [1.0, 0.8, 0.5]
+          linear: 0.05
+          quadratic: 0.01
+      - type: Orbiter
+        props:
+          center: [0.0, 2.0, 0.0]
+          axis: [0.0, 1.0, 0.0]
+          radius: 6.0
+          speed: 25.0
+          phase: 0.0
+
+  - name: orbiting-lamp-cool
+    components:
+      - type: PointLight
+        props:
+          diffuse: [0.3, 0.5, 1.0]
+          specular: [0.5, 0.7, 1.0]
+          linear: 0.05
+          quadratic: 0.01
+      - type: Orbiter
+        props:
+          center: [0.0, 2.0, 0.0]
+          axis: [0.0, 1.0, 0.0]
+          radius: 6.0
+          speed: 25.0
+          phase: 180.0

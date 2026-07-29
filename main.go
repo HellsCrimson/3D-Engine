@@ -3,6 +3,7 @@ package main
 import (
 	"runtime"
 
+	"3d-engine/components"
 	"3d-engine/editor"
 	"3d-engine/engine"
 	"3d-engine/utils"
@@ -19,6 +20,11 @@ func main() {
 	app, err := engine.New(engine.Options{
 		ConfigPath: args.ConfigPath,
 		ScenePath:  args.ScenePath,
+
+		// A hook rather than a call on the returned App, because New loads the
+		// initial scene before it returns and that scene has to be able to name
+		// these components.
+		RegisterComponents: components.Register,
 	})
 	if err != nil {
 		utils.Logger().Fatalln(err)

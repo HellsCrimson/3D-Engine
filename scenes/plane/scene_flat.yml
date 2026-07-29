@@ -14,10 +14,26 @@ objects:
     body:
       static: true
 
+  # A second instance of the same model, spun by a game component. Sharing
+  # plane.obj with the ground below also puts the asset cache's refcount to work:
+  # one import, two entities.
+  #
+  # Lighting is not what makes this visible — plane.obj has no diffuse texture,
+  # so the fragment shader's missing-texture branch skips lighting entirely and
+  # both slabs render flat magenta. The motion is the point.
+  - name: spinning-platform
+    model: scenes/plane/plane.obj
+    transform:
+      position: [0.0, 3.0, 0.0]
+      rotation: [0.0, 1.0, 0.0, 0.0]
+      scale: [0.04, 0.5, 0.04]
+    components:
+      - type: Spinner
+        props:
+          axis: [0.0, 1.0, 0.0]
+          speed: 40.0
+
   # Lights are scene data now; these used to be hardcoded in computeLight.
-  # Note: plane.obj has no diffuse texture, and the fragment shader's
-  # missing-texture branch bypasses lighting entirely, so nothing here is
-  # visible on the plane itself. Point lights are demonstrated on Sponza.
   - name: sun
     components:
       - type: DirectionalLight

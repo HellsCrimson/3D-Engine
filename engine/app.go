@@ -37,6 +37,15 @@ type Options struct {
 	SkyboxPath string
 	RPCAddr    string
 	DisableRPC bool
+
+	// RegisterComponents adds the game's component types to the registry.
+	//
+	// It exists because New loads the initial scene before it returns, so
+	// registering from the caller afterwards is too late: a scene naming a game
+	// component would already have failed with "unknown component type". This
+	// hook runs after the built-in components and before that load, which is the
+	// only window where a game can get its types in.
+	RegisterComponents func(r *ComponentRegistry) error
 }
 
 func (o *Options) applyDefaults() {
@@ -183,6 +192,16 @@ func New(opts Options) (*App, error) {
 	}
 	a.gravityDirection = a.gravityAxes[0]
 	registerBuiltinComponents(a.Components)
+
+	// Before the initial scene load below, so that scene can name the game's
+	// components.
+	if opts.RegisterComponents != nil {
+		if err := opts.RegisterComponents(a.Components); err != nil {
+			a.Close()
+			return nil, fmt.Errorf("could not register components: %w", err)
+		}
+	}
+
 	a.Scenes = NewSceneManager(a, config, opts.ScenePath)
 	// Give despawned entities a chance to run OnDestroy.
 	a.World.onDespawn = a.destroyComponents

@@ -364,3 +364,60 @@ func TestSaveOmitsEmptyProps(t *testing.T) {
 
 // marker is a component with no configurable state, like a tag.
 type marker struct{}
+
+// mover stands in for a component that accumulates state as it runs, the way the
+// game-side Spinner and Orbiter accumulate an angle.
+type mover struct {
+	Travelled float32 `yaml:"travelled"`
+}
+
+func (m *mover) Update(ctx *Context) {
+	m.Travelled += ctx.DeltaTime
+	ctx.Entity.SetPosition(mgl32.Vec3{m.Travelled, 0, 0})
+}
+
+// TestSaveCapturesLiveComponentState is the rule component authors depend on:
+// what gets saved is the component's exported fields as they are right now, not
+// as the scene file first set them.
+//
+// It is why a component that accumulates state keeps it in a property rather than
+// a private field — saving mid-motion and reloading then resumes from the same
+// place instead of snapping back to the start.
+func TestSaveCapturesLiveComponentState(t *testing.T) {
+	a := saveTestApp(t)
+	a.deltaTime = 0.5
+	a.Components.MustRegister("Mover", func() Component { return &mover{} })
+
+	entity := NewEntity("runner")
+	entity.AddComponent(&mover{})
+	a.World.Spawn(entity)
+
+	a.startAndUpdateComponents()
+	a.startAndUpdateComponents()
+
+	path := filepath.Join(t.TempDir(), "scene.yml")
+	if err := a.SaveScene(path); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	// Reloading has to reproduce both the accumulated property and the position
+	// the component drove it to.
+	loadAndPlace(t, a, path)
+
+	reloaded := a.World.Find("runner")
+	if reloaded == nil {
+		t.Fatal("runner did not survive the round trip")
+	}
+
+	restored, ok := GetComponent[*mover](reloaded)
+	if !ok {
+		t.Fatal("runner lost its mover")
+	}
+	if restored.Travelled != 1.0 {
+		t.Errorf("accumulated state: got %v, want the live 1.0", restored.Travelled)
+	}
+	if reloaded.Transform().Position != (mgl32.Vec3{1, 0, 0}) {
+		t.Errorf("position: got %v, want the component-driven {1 0 0}",
+			reloaded.Transform().Position)
+	}
+}
