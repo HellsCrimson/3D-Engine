@@ -40,6 +40,23 @@ func (e *Editor) drawStats() {
 	imgui.Text(fmt.Sprintf("Models resident: %d (%d refs)", models, holds))
 
 	imgui.Text("C releases the cursor to use this panel")
+
+	if imgui.CollapsingHeaderTreeNodeFlagsV("Key bindings", 0) {
+		if imgui.BeginTable("Bindings", 2) {
+			imgui.TableSetupColumnV("Action", imgui.TableColumnFlagsWidthFixed, 180, 0)
+			imgui.TableSetupColumnV("Keys", imgui.TableColumnFlagsWidthStretch, 0, 0)
+			imgui.TableHeadersRow()
+
+			for _, action := range e.app.Input.Actions() {
+				imgui.TableNextColumn()
+				imgui.Text(string(action))
+				imgui.TableNextColumn()
+				imgui.Text(e.app.Input.Describe(action))
+			}
+
+			imgui.EndTable()
+		}
+	}
 }
 
 // entityRows snapshots the world. Names and handles are copied out so the rest

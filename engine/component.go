@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"3d-engine/camera"
+	"3d-engine/input"
 )
 
 // Component is anything attached to an entity. There is no required method:
@@ -52,7 +53,10 @@ type Context struct {
 	World  *World
 	Entity *Entity
 	Camera *camera.Camera
-	Keys   *KeyHandler
+
+	// Input is the action map, so a component asks for "jump" rather than for
+	// a specific key.
+	Input *input.Map
 
 	// DeltaTime is the frame time in Update and the fixed step in FixedUpdate.
 	DeltaTime float32

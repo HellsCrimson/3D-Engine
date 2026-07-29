@@ -10,6 +10,19 @@ sceneModes:
   default: ./scenes/sponza/sponza.yml
   flat: scenes/plane/scene_flat.yml
 
+# Rebind anything here. An action listed replaces its default key outright.
+# Engine actions: move_forward move_back move_left move_right move_up move_down
+# jump sprint quit toggle_cursor toggle_wireframe toggle_flashlight
+# toggle_gravity cycle_gravity_axis toggle_player_mode toggle_collision_debug
+# toggle_editor
+input:
+  actions:
+    move_forward: [W, Up]
+    move_back: [S, Down]
+    move_left: [A, Left]
+    move_right: [D, Right]
+    toggle_editor: [F1]
+
 physics:
   gravity: 9.81
   collisionDebugDistance: 80.0

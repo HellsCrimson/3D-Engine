@@ -3,6 +3,8 @@ package engine
 import (
 	"testing"
 
+	"3d-engine/input"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -43,7 +45,7 @@ func testApp() *App {
 	a := &App{
 		World:            NewWorld(),
 		Components:       NewComponentRegistry(),
-		Keys:             NewKeyHandler(),
+		Input:            input.NewMap(),
 		deltaTime:        0.016,
 		physicsDeltaTime: 0.02,
 	}

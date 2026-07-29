@@ -17,9 +17,16 @@ type Config struct {
 	DefaultSceneMode  string            `yaml:"defaultSceneMode"`
 	SceneModes        map[string]string `yaml:"sceneModes"`
 
+	Input   InputConfig   `yaml:"input"`
 	Physics PhysicsConfig `yaml:"physics"`
 	Player  PlayerConfig  `yaml:"player"`
 	RPC     RPCConfig     `yaml:"rpc"`
+}
+
+// InputConfig rebinds actions. An action listed here replaces the engine
+// default outright, so the old key stops working rather than both being live.
+type InputConfig struct {
+	Actions map[string][]string `yaml:"actions"`
 }
 
 // PhysicsConfig replaces the gravityStrength/gravityDirection package vars.

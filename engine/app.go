@@ -6,6 +6,7 @@ package engine
 import (
 	"3d-engine/assets"
 	"3d-engine/camera"
+	"3d-engine/input"
 	"3d-engine/object"
 	"3d-engine/shaders"
 	"3d-engine/textures"
@@ -84,7 +85,10 @@ type App struct {
 	Window *glfw.Window
 	Camera *camera.Camera
 	Scenes *SceneManager
-	Keys   *KeyHandler
+
+	// Input maps keys to named actions. Rebind through config or at runtime;
+	// nothing downstream knows which key an action came from.
+	Input *input.Map
 
 	// Components maps scene-file type names to Go constructors. A game
 	// registers its behaviours here before calling Run.
@@ -156,7 +160,7 @@ func New(opts Options) (*App, error) {
 		Config: config,
 		width:  config.Width,
 		height: config.Height,
-		Keys:   NewKeyHandler(),
+		Input:  input.NewMap(),
 		World:  NewWorld(),
 
 		Components: NewComponentRegistry(),
@@ -213,7 +217,11 @@ func New(opts Options) (*App, error) {
 		}
 		a.Camera.ScrollCallback(w, xoff, yoff)
 	})
-	a.registerDefaultKeys()
+	defaultBindings(a.Input)
+	if err := applyConfigBindings(a.Input, config.Input.Actions); err != nil {
+		a.Close()
+		return nil, fmt.Errorf("could not apply input bindings: %w", err)
+	}
 
 	if !a.rpcDisabled() {
 		if err := a.startRPCServer(a.rpcAddress()); err != nil {
@@ -581,7 +589,10 @@ func (a *App) stepPlayer(entities []*Entity) {
 		a.playerVelocity = a.playerVelocity.Add(a.gravityDirection.Mul(a.gravityStrength * a.physicsDeltaTime))
 	}
 
-	if a.Window.GetKey(glfw.KeySpace) == glfw.Press && a.playerGrounded && glfw.GetTime()-a.lastJumpTime >= 0.2 {
+	// Reads the action rather than the key, so rebinding jump in config works
+	// here too. IsDown rather than JustPressed: holding jump should keep
+	// hopping, and the grounded check already gates repeats.
+	if a.Input.IsDown(ActionJump) && a.playerGrounded && glfw.GetTime()-a.lastJumpTime >= 0.2 {
 		a.playerVelocity = a.playerVelocity.Add(a.gravityDirection.Mul(-a.playerJumpSpeed))
 		a.playerGrounded = false
 		a.lastJumpTime = glfw.GetTime()
@@ -715,31 +726,11 @@ func (a *App) uploadSpotLight(shader *shaders.Shader, placed *placedSpotLight) {
 	shader.SetBool("spotLight.isEnabled", true)
 }
 
+// processInput samples the keyboard once and lets handleActions react to the
+// snapshot.
 func (a *App) processInput() {
-	// Cycle through the gravity axes the config lists, for world-space testing.
-	if a.Window.GetKey(glfw.KeyH) == glfw.Press && glfw.GetTime()-a.lastGravityAxisToggle >= 0.3 {
-		a.lastGravityAxisToggle = glfw.GetTime()
-		a.cycleGravityAxis()
-	}
-
-	// While the overlay owns the keyboard, typing in a text field must not also
-	// drive the camera. The keys are still tracked as released so nothing
-	// latches down.
-	if a.overlayCapturesKeyboard() {
-		for i := glfw.KeySpace; i < glfw.KeyLast; i++ {
-			a.Keys.IsPressed[i] = false
-		}
-		return
-	}
-
-	for i := glfw.KeySpace; i < glfw.KeyLast; i++ {
-		if a.Window.GetKey(i) == glfw.Press {
-			a.Keys.PressKey(i)
-			a.Keys.IsPressed[i] = true
-		} else if a.Window.GetKey(i) == glfw.Release {
-			a.Keys.IsPressed[i] = false
-		}
-	}
+	a.Input.Poll(input.Window{Window: a.Window}, a.overlayCapturesKeyboard())
+	a.handleActions()
 }
 
 // cycleGravityAxis advances to the next configured gravity direction.

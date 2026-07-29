@@ -12,7 +12,7 @@ func (a *App) context(entity *Entity, deltaTime float32) *Context {
 		World:     a.World,
 		Entity:    entity,
 		Camera:    a.Camera,
-		Keys:      a.Keys,
+		Input:     a.Input,
 		DeltaTime: deltaTime,
 	}
 }
