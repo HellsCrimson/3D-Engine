@@ -20,11 +20,26 @@ func (e *Editor) draw() {
 	imgui.Separator()
 
 	rows := e.entityRows()
-	e.drawEntityList(rows)
+	byHandle := indexRows(rows)
+
+	e.drawSpawn()
 	imgui.Separator()
-	e.drawInspector()
+	e.drawEntityTree(rows, byHandle)
+	imgui.Separator()
+	e.drawInspector(rows, byHandle)
 
 	imgui.End()
+}
+
+// indexRows makes the snapshot walkable as a tree. ObjectInfo carries child
+// handles rather than nested structs, so drawing the hierarchy means resolving
+// them against the rest of the snapshot.
+func indexRows(rows []engine.ObjectInfo) map[engine.Handle]engine.ObjectInfo {
+	byHandle := make(map[engine.Handle]engine.ObjectInfo, len(rows))
+	for _, row := range rows {
+		byHandle[row.Handle] = row
+	}
+	return byHandle
 }
 
 // drawSave writes the live world back to a scene file.
@@ -146,36 +161,247 @@ func (e *Editor) drawSceneModes() {
 	}
 }
 
-func (e *Editor) drawEntityList(rows []engine.ObjectInfo) {
-	if imgui.BeginTable("Objects", 3) {
-		imgui.TableSetupColumnV("Name", imgui.TableColumnFlagsWidthStretch, 0, 0)
-		imgui.TableSetupColumnV("Handle", imgui.TableColumnFlagsWidthFixed, 80, 0)
-		imgui.TableSetupColumnV("Action", imgui.TableColumnFlagsWidthFixed, 80, 0)
-		imgui.TableHeadersRow()
+// drawSpawn is the create-entity form.
+//
+// It goes through App.SpawnObject, the same call the gRPC ADD_OBJECT handler and
+// scene loading use, so there is nothing the editor can create that another
+// front-end could not.
+func (e *Editor) drawSpawn() {
+	if !imgui.CollapsingHeaderTreeNodeFlagsV("Create entity", 0) {
+		return
+	}
 
-		for i, row := range rows {
-			imgui.PushIDStr(fmt.Sprintf("object-%d", i))
+	imgui.PushItemWidth(240)
+	imgui.InputTextWithHint("Name", "entity name", &e.spawnName, 0, nil)
+	imgui.InputTextWithHint("Model", "path/to.obj — leave empty for a light or group", &e.spawnModel, 0, nil)
 
-			imgui.TableNextColumn()
-			imgui.Text(row.Name)
+	// "(none)" first, so the zero value of spawnComponent means no component.
+	choices := append([]string{"(none)"}, e.app.Components.Names()...)
+	imgui.ComboStrarr("Component", &e.spawnComponent, choices, int32(len(choices)))
+	imgui.PopItemWidth()
 
-			imgui.TableNextColumn()
-			imgui.Text(fmt.Sprintf("%d v%d", row.Handle.Index, row.Handle.Generation))
+	imgui.Checkbox("Rigid body", &e.spawnWithBody)
+	if e.spawnWithBody {
+		imgui.SameLine()
+		imgui.Checkbox("Static", &e.spawnStatic)
+	}
 
-			imgui.TableNextColumn()
-			if imgui.Button("Select") {
-				e.selected = row.Handle
-				e.status = ""
-			}
+	if !e.selected.IsZero() {
+		imgui.Checkbox("Child of selection", &e.spawnAsChild)
+	} else {
+		e.spawnAsChild = false
+		imgui.TextDisabled("Select an entity to spawn a child of it")
+	}
 
-			imgui.PopID()
-		}
+	if imgui.Button("Spawn") {
+		e.spawn(int(e.spawnComponent), choices)
+	}
 
-		imgui.EndTable()
+	if e.spawnStatus != "" {
+		imgui.Text(e.spawnStatus)
 	}
 }
 
-func (e *Editor) drawInspector() {
+// spawn builds the spec the form describes and creates it.
+//
+// Called from Frame, which the engine runs on the frame-loop goroutine, so
+// SpawnObject can be called directly: importing the model is GL work, and this is
+// where GL work is allowed.
+func (e *Editor) spawn(componentChoice int, choices []string) {
+	name := e.spawnName
+	if name == "" {
+		name = "entity"
+	}
+
+	spec := engine.ObjectSpec{
+		Name:      name,
+		Model:     e.spawnModel,
+		Transform: engine.IdentityTransform(),
+	}
+
+	if e.spawnWithBody {
+		spec.Body = &engine.RigidBody{Static: e.spawnStatic}
+	}
+
+	if componentChoice > 0 && componentChoice < len(choices) {
+		component, err := e.app.Components.New(choices[componentChoice])
+		if err != nil {
+			e.spawnStatus = err.Error()
+			return
+		}
+		spec.Components = append(spec.Components, component)
+	}
+
+	if e.spawnAsChild && !e.selected.IsZero() {
+		// A child keeps the identity transform, which puts it exactly on its
+		// parent. Dropping it in front of the camera instead would be wrong: a
+		// child's position is in its parent's space, not the world's.
+		spec.Parent = e.selected
+	} else {
+		// A root entity lands in front of the camera rather than at the origin,
+		// which may be nowhere near what you are looking at.
+		spec.Transform.Position = e.app.Camera.CameraPos.Add(e.app.Camera.CameraFront.Mul(5))
+	}
+
+	spawned, err := e.app.SpawnObject(spec)
+	if err != nil {
+		e.spawnStatus = err.Error()
+		return
+	}
+
+	e.selected = spawned.Handle()
+	e.reparentTarget = spec.Parent
+	e.spawnStatus = fmt.Sprintf("Spawned %s", name)
+	e.status = ""
+}
+
+// drawEntityTree draws the scene as a hierarchy. It replaced a flat table, which
+// could list a parented entity but had no way to show what it was parented to.
+//
+// Only roots are walked from the top; children are reached through their parent,
+// so each entity is drawn once even though the world stores them all in one flat
+// slice.
+func (e *Editor) drawEntityTree(rows []engine.ObjectInfo, byHandle map[engine.Handle]engine.ObjectInfo) {
+	imgui.Text(fmt.Sprintf("Hierarchy (%d entities)", len(rows)))
+
+	// A fixed-height scrolling region: the window is AlwaysAutoResize, so without
+	// this a large scene would grow it past the bottom of the screen.
+	if !imgui.BeginChildStrV("hierarchy", imgui.NewVec2(0, 220), 0, 0) {
+		imgui.EndChild()
+		return
+	}
+
+	for _, row := range rows {
+		if row.Parent.IsZero() {
+			e.drawEntityNode(row, byHandle)
+		}
+	}
+
+	imgui.EndChild()
+}
+
+func (e *Editor) drawEntityNode(row engine.ObjectInfo, byHandle map[engine.Handle]engine.ObjectInfo) {
+	flags := imgui.TreeNodeFlagsOpenOnArrow |
+		imgui.TreeNodeFlagsDefaultOpen |
+		imgui.TreeNodeFlagsSpanAvailWidth
+	if len(row.Children) == 0 {
+		flags |= imgui.TreeNodeFlagsLeaf
+	}
+	if row.Handle == e.selected {
+		flags |= imgui.TreeNodeFlagsSelected
+	}
+
+	// The handle is in the ID, not just the label, so two entities sharing a name
+	// stay distinct widgets.
+	imgui.PushIDStr(fmt.Sprintf("entity-%d-%d", row.Handle.Index, row.Handle.Generation))
+	open := imgui.TreeNodeExStrV(
+		fmt.Sprintf("%s  [%d v%d]", row.Name, row.Handle.Index, row.Handle.Generation),
+		flags)
+
+	// OpenOnArrow above means a click on the label selects instead of collapsing.
+	if imgui.IsItemClicked() {
+		e.selected = row.Handle
+		e.status = ""
+		e.reparentTarget = row.Parent
+	}
+
+	if open {
+		for _, childHandle := range row.Children {
+			child, ok := byHandle[childHandle]
+			if !ok {
+				// A child that despawned between the snapshot and now. Nothing to
+				// draw, and it will be gone from the next frame's snapshot.
+				continue
+			}
+			e.drawEntityNode(child, byHandle)
+		}
+		imgui.TreePop()
+	}
+
+	imgui.PopID()
+}
+
+// drawReparent is the parent picker.
+//
+// Reparenting keeps the entity's local transform, so it jumps to sit at the same
+// offset from its new parent rather than holding its world position. Holding the
+// world position would mean decomposing a world matrix back into
+// position/rotation/scale, which axis-angle rotations do not survive.
+func (e *Editor) drawReparent(info engine.ObjectInfo, rows []engine.ObjectInfo, byHandle map[engine.Handle]engine.ObjectInfo) {
+	current := "(scene root)"
+	if !info.Parent.IsZero() {
+		if parent, ok := byHandle[info.Parent]; ok {
+			current = parent.Name
+		} else {
+			current = info.Parent.String()
+		}
+	}
+	imgui.Text(fmt.Sprintf("Parent: %s", current))
+
+	preview := "(scene root)"
+	if !e.reparentTarget.IsZero() {
+		if target, ok := byHandle[e.reparentTarget]; ok {
+			preview = target.Name
+		} else {
+			// The chosen parent has been despawned since it was picked.
+			preview = "(no longer exists)"
+		}
+	}
+
+	imgui.PushItemWidth(200)
+	if imgui.BeginCombo("##reparent", preview) {
+		if imgui.SelectableBool("(scene root)") {
+			e.reparentTarget = engine.NoHandle
+		}
+
+		for _, candidate := range rows {
+			// Neither itself nor anything below it: those are the choices that
+			// would make a cycle, and WorldMatrix would recurse until the stack
+			// gave out.
+			if candidate.Handle == info.Handle || isDescendantOf(candidate.Handle, info.Handle, byHandle) {
+				continue
+			}
+			label := fmt.Sprintf("%s [%d v%d]", candidate.Name,
+				candidate.Handle.Index, candidate.Handle.Generation)
+			if imgui.SelectableBool(label) {
+				e.reparentTarget = candidate.Handle
+			}
+		}
+
+		imgui.EndCombo()
+	}
+	imgui.PopItemWidth()
+
+	imgui.SameLine()
+	if imgui.Button("Reparent") {
+		if err := e.app.SetParent(e.selected, e.reparentTarget); err != nil {
+			e.status = err.Error()
+		} else {
+			e.status = ""
+		}
+	}
+}
+
+// isDescendantOf reports whether candidate sits below root in the snapshot.
+func isDescendantOf(candidate, root engine.Handle, byHandle map[engine.Handle]engine.ObjectInfo) bool {
+	info, ok := byHandle[candidate]
+	if !ok {
+		return false
+	}
+
+	for !info.Parent.IsZero() {
+		if info.Parent == root {
+			return true
+		}
+		info, ok = byHandle[info.Parent]
+		if !ok {
+			return false
+		}
+	}
+	return false
+}
+
+func (e *Editor) drawInspector(rows []engine.ObjectInfo, byHandle map[engine.Handle]engine.ObjectInfo) {
 	if e.selected.IsZero() {
 		imgui.Text("No object selected")
 		return
@@ -197,6 +423,11 @@ func (e *Editor) drawInspector() {
 	if info.Model != "" {
 		imgui.Text(fmt.Sprintf("Model: %s", info.Model))
 	}
+	if len(info.Children) > 0 {
+		imgui.Text(fmt.Sprintf("Children: %d", len(info.Children)))
+	}
+
+	e.drawReparent(info, rows, byHandle)
 
 	// Track the entity except while a widget is being dragged: otherwise the
 	// physics step would overwrite the value under the user's cursor every
@@ -252,16 +483,32 @@ func (e *Editor) drawInspector() {
 		}
 	}
 
+	// Both go through the object API, which releases the entity's model back to
+	// the asset cache. World.Despawn on its own would drop the entity and leak
+	// its GPU memory. Frame runs on the frame-loop goroutine, which is where that
+	// release is allowed, so these are direct calls rather than App.Defer.
 	imgui.SameLine()
-	if imgui.Button("Despawn") {
-		// Deferred, not direct: DespawnObject releases the model back to the
-		// asset cache, which is GL work and belongs on the frame loop. Going
-		// through World.Despawn instead would drop the entity and leak it.
-		handle := e.selected
-		e.app.Defer(func(a *engine.App) error {
-			return a.DespawnObject(handle)
-		})
-		e.selected = engine.NoHandle
+	if imgui.Button("Delete") {
+		// The subtree, which is what deleting a thing means. Deleting the parent
+		// alone would leave its children behind, lifted to the scene root.
+		if err := e.app.DespawnTree(e.selected); err != nil {
+			e.status = err.Error()
+		} else {
+			e.selected = engine.NoHandle
+			e.reparentTarget = engine.NoHandle
+		}
+	}
+
+	if len(info.Children) > 0 {
+		imgui.SameLine()
+		if imgui.Button("Delete, keep children") {
+			if err := e.app.DespawnObject(e.selected); err != nil {
+				e.status = err.Error()
+			} else {
+				e.selected = engine.NoHandle
+				e.reparentTarget = engine.NoHandle
+			}
+		}
 	}
 
 	if e.status != "" {

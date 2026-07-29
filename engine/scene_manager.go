@@ -70,12 +70,20 @@ func (sm *SceneManager) LoadScene(scenePath string) error {
 	for i := range loadedScene.Objects {
 		obj := &loadedScene.Objects[i]
 
-		entity, err := sm.buildEntity(obj)
+		spec, err := sm.buildSpec(obj)
 		if err != nil {
-			sm.releaseEntities(entities)
+			sm.app.releaseModels(entities)
 			return err
 		}
-		entities = append(entities, entity)
+
+		// One flat list of every entity in the scene, however deep: the tree is
+		// in their parent pointers, and World.Replace wants the lot.
+		subtree, err := sm.app.BuildTree(spec)
+		if err != nil {
+			sm.app.releaseModels(entities)
+			return err
+		}
+		entities = append(entities, subtree...)
 	}
 
 	// Hold a reference to the outgoing scene's models until after the swap, so
@@ -85,7 +93,7 @@ func (sm *SceneManager) LoadScene(scenePath string) error {
 
 	sm.app.World.Replace(entities)
 
-	sm.releaseEntities(outgoing)
+	sm.app.releaseModels(outgoing)
 
 	if err := sm.app.setSkybox(loadedScene.Skybox); err != nil {
 		utils.Logger().Printf("Loading skybox: %v", err)
@@ -107,10 +115,13 @@ func (sm *SceneManager) CameraSpawn() scene.CameraSpec {
 	return sm.cameraSpawn
 }
 
-// buildEntity turns one scene-file object into an ObjectSpec and hands it to
-// the engine's object API, so a scene row and an ADD_OBJECT request build an
-// entity by exactly the same code.
-func (sm *SceneManager) buildEntity(obj *scene.Object) (*Entity, error) {
+// buildSpec turns one scene-file object, and everything nested under it, into an
+// ObjectSpec. The engine's object API does the building from there, so a scene
+// row and an ADD_OBJECT request produce an entity by exactly the same code.
+//
+// It resolves components but touches no assets, which keeps the GL work in
+// BuildTree and makes this half testable on its own.
+func (sm *SceneManager) buildSpec(obj *scene.Object) (ObjectSpec, error) {
 	transform := obj.ResolveTransform()
 
 	spec := ObjectSpec{
@@ -132,12 +143,12 @@ func (sm *SceneManager) buildEntity(obj *scene.Object) (*Entity, error) {
 
 		component, err := sm.app.Components.New(componentSpec.Type)
 		if err != nil {
-			return nil, fmt.Errorf("object %q: %w", obj.Name, err)
+			return ObjectSpec{}, fmt.Errorf("object %q: %w", obj.Name, err)
 		}
 
 		if componentSpec.HasProps() {
 			if err := componentSpec.Props.Decode(component); err != nil {
-				return nil, fmt.Errorf("object %q: component %q props: %w",
+				return ObjectSpec{}, fmt.Errorf("object %q: component %q props: %w",
 					obj.Name, componentSpec.Type, err)
 			}
 		}
@@ -145,22 +156,15 @@ func (sm *SceneManager) buildEntity(obj *scene.Object) (*Entity, error) {
 		spec.Components = append(spec.Components, component)
 	}
 
-	// BuildObject rather than SpawnObject: the whole scene is assembled before
-	// the old one is torn down, so nothing is added to the world yet.
-	return sm.app.BuildObject(spec)
-}
-
-// releaseEntities returns each entity's model to the cache. Used for the
-// outgoing scene after a swap, and at shutdown.
-func (sm *SceneManager) releaseEntities(entities []*Entity) {
-	for _, entity := range entities {
-		if entity.Renderer == nil || entity.Renderer.Model == nil {
-			continue
+	for i := range obj.Children {
+		child, err := sm.buildSpec(&obj.Children[i])
+		if err != nil {
+			return ObjectSpec{}, err
 		}
-		if err := sm.app.Assets.Release(entity.Renderer.Model); err != nil {
-			utils.Logger().Printf("Releasing model: %v", err)
-		}
+		spec.Children = append(spec.Children, child)
 	}
+
+	return spec, nil
 }
 
 func (sm *SceneManager) CurrentScenePath() string {

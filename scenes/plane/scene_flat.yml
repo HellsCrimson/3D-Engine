@@ -33,6 +33,20 @@ objects:
           axis: [0.0, 1.0, 0.0]
           speed: 40.0
 
+    # A child, to show what the hierarchy is for. It has no component of its
+    # own — it swings around the platform purely because its parent turns and
+    # its transform is relative to that parent.
+    #
+    # The scale is divided out by hand: a child inherits the parent's scale, and
+    # the platform is squashed to 0.04 on X and Z, so the offset and size here are
+    # in those squashed units.
+    children:
+      - name: platform-post
+        model: scenes/plane/plane.obj
+        transform:
+          position: [15.0, 2.0, 0.0]
+          scale: [0.1, 4.0, 0.1]
+
   # Lights are scene data now; these used to be hardcoded in computeLight.
   - name: sun
     components:

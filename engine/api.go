@@ -28,6 +28,16 @@ type ObjectSpec struct {
 	Body *RigidBody
 
 	Components []Component
+
+	// Children are built with this entity as their parent. A scene file's nested
+	// `children:` block and a spawn of a whole prefab-like tree are the same
+	// thing here.
+	Children []ObjectSpec
+
+	// Parent, when set, attaches the new entity under an entity that is already
+	// in the world. It is resolved before anything is spawned, so a stale handle
+	// fails without leaving a half-attached entity behind.
+	Parent Handle
 }
 
 // ObjectInfo is a read-only snapshot, taken under the world lock so callers
@@ -37,6 +47,14 @@ type ObjectInfo struct {
 	Name      string
 	Model     string
 	Transform Transform
+
+	// Parent is NoHandle for an entity at the root of the scene.
+	Parent Handle
+
+	// Children are handles rather than nested ObjectInfos so a caller can walk
+	// the tree at its own pace, and so one deep subtree does not make every
+	// snapshot expensive.
+	Children []Handle
 }
 
 // BuildObject constructs an entity and acquires its assets without adding it to
@@ -65,16 +83,80 @@ func (a *App) BuildObject(spec ObjectSpec) (*Entity, error) {
 	return entity, nil
 }
 
-// SpawnObject builds an entity and adds it to the world. Frame-loop goroutine
-// only; from anywhere else use Spawn.
-func (a *App) SpawnObject(spec ObjectSpec) (*Entity, error) {
-	entity, err := a.BuildObject(spec)
+// BuildTree builds a spec and everything under it, returning one flat list with
+// the parent links already wired. The root is first.
+//
+// The list is flat because the World holds every entity in one dense slice
+// regardless of shape — the tree lives in the entities' parent pointers, not in
+// how they are stored. Scene loading needs exactly this: build the whole scene,
+// then hand it to World.Replace in a single swap.
+//
+// It imports assets, so it must run on the frame-loop goroutine. A failure
+// anywhere releases what this call already acquired and returns nothing, so a
+// partly built tree never leaks models.
+func (a *App) BuildTree(spec ObjectSpec) ([]*Entity, error) {
+	root, err := a.BuildObject(spec)
 	if err != nil {
 		return nil, err
 	}
 
-	a.World.Spawn(entity)
-	return entity, nil
+	built := []*Entity{root}
+
+	for i := range spec.Children {
+		subtree, err := a.BuildTree(spec.Children[i])
+		if err != nil {
+			a.releaseModels(built)
+			return nil, fmt.Errorf("child of %q: %w", spec.Name, err)
+		}
+
+		subtree[0].SetParent(root)
+		built = append(built, subtree...)
+	}
+
+	return built, nil
+}
+
+// SpawnObject builds an entity, and everything under it, and adds it all to the
+// world. It returns the root. Frame-loop goroutine only; from anywhere else use
+// Spawn.
+func (a *App) SpawnObject(spec ObjectSpec) (*Entity, error) {
+	entities, err := a.BuildTree(spec)
+	if err != nil {
+		return nil, err
+	}
+	root := entities[0]
+
+	// Resolved before anything is spawned: a stale parent handle should fail
+	// cleanly rather than leave the new entity in the world unattached.
+	if !spec.Parent.IsZero() {
+		attached := a.World.Mutate(spec.Parent, func(parent *Entity) {
+			root.SetParent(parent)
+		})
+		if !attached {
+			a.releaseModels(entities)
+			return nil, fmt.Errorf("parent %s not found", spec.Parent)
+		}
+	}
+
+	for _, entity := range entities {
+		a.World.Spawn(entity)
+	}
+
+	return root, nil
+}
+
+// releaseModels returns each entity's model to the asset cache. It is the
+// teardown half of BuildObject, used for the outgoing scene after a swap, for a
+// build that failed part-way, and at shutdown.
+func (a *App) releaseModels(entities []*Entity) {
+	for _, entity := range entities {
+		if entity.Renderer == nil || entity.Renderer.Model == nil {
+			continue
+		}
+		if err := a.Assets.Release(entity.Renderer.Model); err != nil {
+			utils.Logger().Printf("Releasing model: %v", err)
+		}
+	}
 }
 
 // Spawn queues SpawnObject onto the frame loop and waits for the handle. Safe
@@ -130,6 +212,56 @@ func (a *App) Despawn(handle Handle) error {
 	})
 }
 
+// DespawnTree removes an entity together with everything below it.
+//
+// DespawnObject on its own orphans the children up to the scene root, which is
+// the right primitive but almost never what deleting means: an editor's Delete,
+// or a prefab going away, should take the subtree with it.
+//
+// Frame-loop goroutine only; from anywhere else use DespawnSubtree.
+func (a *App) DespawnTree(handle Handle) error {
+	var order []Handle
+
+	found := a.World.Mutate(handle, func(root *Entity) {
+		order = subtreeHandles(root)
+	})
+	if !found {
+		return fmt.Errorf("object %s not found", handle)
+	}
+
+	// Deepest first, so every entity is childless by the time it is removed and
+	// World.Despawn's orphaning step has nothing to do.
+	for _, h := range order {
+		if err := a.DespawnObject(h); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DespawnSubtree queues DespawnTree onto the frame loop and waits.
+func (a *App) DespawnSubtree(handle Handle) error {
+	return a.Do(func(app *App) error {
+		return app.DespawnTree(handle)
+	})
+}
+
+// subtreeHandles lists the subtree children-first. Callers hold the world lock.
+func subtreeHandles(root *Entity) []Handle {
+	var order []Handle
+
+	for _, child := range root.Children() {
+		order = append(order, subtreeHandles(child)...)
+	}
+	return append(order, root.Handle())
+}
+
+// SetParent reparents an entity, or detaches it to the scene root when parent is
+// NoHandle. Safe from any goroutine: it only relinks pointers, never touches GL.
+func (a *App) SetParent(child, parent Handle) error {
+	return a.World.Reparent(child, parent)
+}
+
 // UpdateTransform applies fn to the entity's transform under the write lock.
 // Safe from any goroutine: it only touches fields, never GL.
 func (a *App) UpdateTransform(handle Handle, fn func(t *Transform)) error {
@@ -180,6 +312,12 @@ func describe(entity *Entity) ObjectInfo {
 	}
 	if entity.Renderer != nil && entity.Renderer.Model != nil {
 		info.Model = entity.Renderer.Model.Path
+	}
+	if parent := entity.Parent(); parent != nil {
+		info.Parent = parent.Handle()
+	}
+	for _, child := range entity.Children() {
+		info.Children = append(info.Children, child.Handle())
 	}
 	return info
 }

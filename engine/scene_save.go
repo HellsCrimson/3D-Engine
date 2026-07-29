@@ -47,6 +47,14 @@ func (a *App) SceneSnapshot() (*scene.Scene, error) {
 		snapshot.Objects = make([]scene.Object, 0, len(entities))
 
 		for _, entity := range entities {
+			// Only roots at the top level. Children are written inside their
+			// parent by describeForSave, and the world's dense slice holds every
+			// entity regardless of depth, so without this each child would be
+			// written twice — once nested and once as a root.
+			if entity.Parent() != nil {
+				continue
+			}
+
 			var row scene.Object
 
 			row, err = a.describeForSave(entity)
@@ -112,6 +120,16 @@ func (a *App) describeForSave(entity *Entity) (scene.Object, error) {
 			return scene.Object{}, err
 		}
 		row.Components = append(row.Components, spec)
+	}
+
+	// Recurses, so a subtree of any depth comes out nested the way a person would
+	// have written it.
+	for _, child := range entity.Children() {
+		childRow, err := a.describeForSave(child)
+		if err != nil {
+			return scene.Object{}, err
+		}
+		row.Children = append(row.Children, childRow)
 	}
 
 	return row, nil

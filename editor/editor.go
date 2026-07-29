@@ -41,6 +41,21 @@ type Editor struct {
 	savePathEdited bool
 	saveStatus     string
 
+	// The create-entity form. Kept on the Editor rather than rebuilt per frame
+	// because ImGui widgets write straight into these.
+	spawnName      string
+	spawnModel     string
+	spawnComponent int32
+	spawnWithBody  bool
+	spawnStatic    bool
+	spawnAsChild   bool
+	spawnStatus    string
+
+	// reparentTarget is a handle, not an index into the entity list. The list is
+	// the world's dense slice, which reshuffles on every despawn, so an index
+	// would silently come to mean a different entity.
+	reparentTarget engine.Handle
+
 	// status shows the last failed operation, e.g. editing an entity that was
 	// despawned between frames.
 	status string

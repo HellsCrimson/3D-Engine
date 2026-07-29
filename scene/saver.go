@@ -124,12 +124,20 @@ func compactScalarSequences(node *yaml.Node) {
 // reloaded is not a save, so it is better to fail here, naming the object, than
 // to write a file that only breaks on the next load.
 func validate(s *Scene, path string) error {
-	for i := range s.Objects {
-		obj := &s.Objects[i]
-		if obj.Model == "" && len(obj.Components) == 0 {
+	return validateObjects(s.Objects, path)
+}
+
+func validateObjects(objects []Object, path string) error {
+	for i := range objects {
+		obj := &objects[i]
+
+		if obj.DoesNothing() {
 			return utils.Logger().Errorf(
-				"cannot save scene %s: object %q has neither a model nor any components, so reloading it would fail",
+				"cannot save scene %s: object %q has no model, no components and no children, so reloading it would fail",
 				path, obj.Name)
+		}
+		if err := validateObjects(obj.Children, path); err != nil {
+			return err
 		}
 	}
 	return nil

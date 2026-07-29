@@ -405,7 +405,7 @@ func (a *App) Close() {
 	if a.World != nil && a.Assets != nil {
 		outgoing := a.currentSceneEntities()
 		a.World.Replace(nil)
-		a.Scenes.releaseEntities(outgoing)
+		a.releaseModels(outgoing)
 	}
 
 	if a.rpc != nil {

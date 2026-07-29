@@ -153,10 +153,31 @@ func (e *Entity) Parent() *Entity { return e.parent }
 // Children returns the live child slice; treat it as read-only.
 func (e *Entity) Children() []*Entity { return e.children }
 
+// IsAncestorOf reports whether e is somewhere above other in the tree.
+//
+// It is what makes a cycle check possible. A cycle is not a cosmetic problem:
+// WorldMatrix walks up the parent chain, so an entity parented into its own
+// subtree recurses until the stack runs out.
+func (e *Entity) IsAncestorOf(other *Entity) bool {
+	for ancestor := other; ancestor != nil; ancestor = ancestor.parent {
+		if ancestor == e {
+			return true
+		}
+	}
+	return false
+}
+
 // SetParent reparents the entity. The local transform is kept as-is, so the
 // entity moves with its new parent rather than holding its world position.
+//
+// A parent that would form a cycle is refused, in keeping with the existing
+// no-op for parenting to self. Callers that need to tell the difference between
+// "done" and "refused" should go through App.SetParent, which reports it.
 func (e *Entity) SetParent(parent *Entity) {
 	if e.parent == parent || parent == e {
+		return
+	}
+	if parent != nil && e.IsAncestorOf(parent) {
 		return
 	}
 

@@ -1,6 +1,9 @@
 package engine
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 // slot is one row of the world's handle table.
 type slot struct {
@@ -72,6 +75,39 @@ func (w *World) Mutate(h Handle, fn func(e *Entity)) bool {
 	}
 	fn(entity)
 	return true
+}
+
+// Reparent moves an entity under another, or to the scene root when parent is
+// NoHandle.
+//
+// It lives here rather than on the App because it needs both handles resolved
+// under one write lock. Doing it with two Mutate calls would leave a window where
+// the parent is despawned between resolving it and using it.
+func (w *World) Reparent(child, parent Handle) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	entity := w.get(child)
+	if entity == nil {
+		return fmt.Errorf("object %s not found", child)
+	}
+
+	var target *Entity
+	if !parent.IsZero() {
+		target = w.get(parent)
+		if target == nil {
+			return fmt.Errorf("parent %s not found", parent)
+		}
+		if entity.IsAncestorOf(target) {
+			// Entity.SetParent would refuse this silently. Here the caller is a
+			// user dragging something in the editor, and they need to be told.
+			return fmt.Errorf("cannot parent %q under its own descendant %q",
+				entity.Name, target.Name)
+		}
+	}
+
+	entity.SetParent(target)
+	return nil
 }
 
 // Find returns the first entity with the given name, or nil.

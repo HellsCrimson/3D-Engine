@@ -118,6 +118,20 @@ type Object struct {
 	Transform  *TransformSpec  `yaml:"transform,omitempty"`
 	Body       *BodySpec       `yaml:"body,omitempty"`
 	Components []ComponentSpec `yaml:"components,omitempty"`
+
+	// Children nest to any depth. A child's transform is relative to its
+	// parent's, which is the whole point: move the parent and the subtree
+	// follows.
+	//
+	// An object with children needs neither a model nor components — a bare
+	// grouping node that exists to be a pivot is legitimate.
+	Children []Object `yaml:"children,omitempty"`
+}
+
+// DoesNothing reports whether the object would have no effect at all: nothing to
+// draw, no behaviour, and nothing hanging off it.
+func (o *Object) DoesNothing() bool {
+	return o.Model == "" && len(o.Components) == 0 && len(o.Children) == 0
 }
 
 // ResolveTransform returns the placement, defaulting to the identity when the
@@ -159,14 +173,26 @@ func Load(path string) (*Scene, error) {
 			path, scene.Version, CurrentVersion)
 	}
 
-	for i := range scene.Objects {
-		obj := &scene.Objects[i]
-		if obj.Model == "" && len(obj.Components) == 0 {
-			return nil, utils.Logger().Errorf(
-				"scene %s: object %q has neither a model nor any components, so it would do nothing",
-				path, obj.Name)
-		}
+	if err := checkObjects(scene.Objects, path); err != nil {
+		return nil, err
 	}
 
 	return scene, nil
+}
+
+// checkObjects rejects objects that would do nothing, at every depth.
+func checkObjects(objects []Object, path string) error {
+	for i := range objects {
+		obj := &objects[i]
+
+		if obj.DoesNothing() {
+			return utils.Logger().Errorf(
+				"scene %s: object %q has no model, no components and no children, so it would do nothing",
+				path, obj.Name)
+		}
+		if err := checkObjects(obj.Children, path); err != nil {
+			return err
+		}
+	}
+	return nil
 }
