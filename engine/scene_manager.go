@@ -29,6 +29,9 @@ type SceneManager struct {
 	requestQueued bool
 	requestedPath string
 	requestedMode string
+
+	// cameraSpawn is where the current scene puts the camera on load and reset.
+	cameraSpawn scene.CameraSpec
 }
 
 func NewSceneManager(app *App, config *utils.Config, fallbackScenePath string) *SceneManager {
@@ -84,23 +87,30 @@ func (sm *SceneManager) LoadScene(scenePath string) error {
 
 	sm.releaseEntities(outgoing)
 
+	if err := sm.app.setSkybox(loadedScene.Skybox); err != nil {
+		utils.Logger().Printf("Loading skybox: %v", err)
+	}
+
 	sm.mu.Lock()
 	sm.currentScenePath = scenePath
 	sm.currentSceneMode = sm.resolveModeFromPath(scenePath)
+	sm.cameraSpawn = loadedScene.ResolveCamera()
 	sm.mu.Unlock()
 
 	return nil
+}
+
+// CameraSpawn is the current scene's camera placement.
+func (sm *SceneManager) CameraSpawn() scene.CameraSpec {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	return sm.cameraSpawn
 }
 
 // buildEntity turns one scene-file object into an entity: the model asset, the
 // transform, the built-in body, and whatever registered components the file
 // asked for.
 func (sm *SceneManager) buildEntity(obj *scene.Object) (*Entity, error) {
-	model, err := sm.app.Assets.Acquire(obj.Model)
-	if err != nil {
-		return nil, fmt.Errorf("could not load model %q: %w", obj.Model, err)
-	}
-
 	transform := obj.ResolveTransform()
 	entity := NewEntity(obj.Name)
 	entity.SetTransform(Transform{
@@ -108,8 +118,22 @@ func (sm *SceneManager) buildEntity(obj *scene.Object) (*Entity, error) {
 		Rotation: mgl32.Vec4(transform.Rotation),
 		Scale:    mgl32.Vec3(transform.Scale),
 	})
-	entity.Renderer = &MeshRenderer{Model: model}
-	entity.Body = &RigidBody{Static: obj.IsStatic()}
+
+	// A model is optional: an object with only components is a light or a
+	// logic node.
+	if obj.Model != "" {
+		model, err := sm.app.Assets.Acquire(obj.Model)
+		if err != nil {
+			return nil, fmt.Errorf("could not load model %q: %w", obj.Model, err)
+		}
+		entity.Renderer = &MeshRenderer{Model: model}
+	}
+
+	// Only give the entity a body when the scene asked for one, so a light does
+	// not quietly start falling.
+	if obj.Body != nil {
+		entity.Body = &RigidBody{Static: obj.Body.Static}
+	}
 
 	for i := range obj.Components {
 		spec := &obj.Components[i]

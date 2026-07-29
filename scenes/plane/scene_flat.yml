@@ -1,14 +1,27 @@
+version: 2
+skybox: ./testObjects/skybox
+camera:
+  position: [0.0, 2.0, 8.0]
+  yaw: -90.0
+  pitch: -10.0
 objects:
-  - path: scenes/plane/plane.obj
-    name: plane
-    isStatic: true
-    originX: 0.0
-    originY: 0.0
-    originZ: 0.0
-    scaleX: 1.0
-    scaleY: 1.0
-    scaleZ: 1.0
-    rotationAngle: 0.0
-    rotationX: 0.0
-    rotationY: 0.0
-    rotationZ: 0.0
+  - name: plane
+    model: scenes/plane/plane.obj
+    transform:
+      position: [0.0, 0.0, 0.0]
+      rotation: [0.0, 1.0, 0.0, 0.0]
+      scale: [1.0, 1.0, 1.0]
+    body:
+      static: true
+
+  # Lights are scene data now; these used to be hardcoded in computeLight.
+  # Note: plane.obj has no diffuse texture, and the fragment shader's
+  # missing-texture branch bypasses lighting entirely, so nothing here is
+  # visible on the plane itself. Point lights are demonstrated on Sponza.
+  - name: sun
+    components:
+      - type: DirectionalLight
+
+  - name: flashlight
+    components:
+      - type: SpotLight

@@ -17,8 +17,47 @@ import (
 const CurrentVersion = 2
 
 type Scene struct {
-	Version int      `yaml:"version"`
-	Objects []Object `yaml:"objects"`
+	Version int         `yaml:"version"`
+	Skybox  string      `yaml:"skybox"`
+	Camera  *CameraSpec `yaml:"camera"`
+	Objects []Object    `yaml:"objects"`
+}
+
+// CameraSpec is where the camera starts, and where it returns to when the scene
+// reloads. It used to be the constant {0, 0, 3} inside resetDynamicState.
+type CameraSpec struct {
+	Position [3]float32 `yaml:"position"`
+	Yaw      float32    `yaml:"yaw"`
+	Pitch    float32    `yaml:"pitch"`
+}
+
+func (c *CameraSpec) UnmarshalYAML(node *yaml.Node) error {
+	type cameraSpec CameraSpec
+
+	decoded := cameraSpec(DefaultCamera())
+	if err := node.Decode(&decoded); err != nil {
+		return err
+	}
+
+	*c = CameraSpec(decoded)
+	return nil
+}
+
+// DefaultCamera is the placement used when a scene omits the camera block.
+func DefaultCamera() CameraSpec {
+	return CameraSpec{
+		Position: [3]float32{0.0, 0.0, 3.0},
+		Yaw:      -90.0,
+		Pitch:    0.0,
+	}
+}
+
+// ResolveCamera returns the scene's camera placement or the default.
+func (s *Scene) ResolveCamera() CameraSpec {
+	if s.Camera != nil {
+		return *s.Camera
+	}
+	return DefaultCamera()
 }
 
 // TransformSpec is the version 2 nested transform. Omitted fields keep the
@@ -64,6 +103,8 @@ func (c *ComponentSpec) HasProps() bool {
 	return !c.Props.IsZero()
 }
 
+// Object is one scene entity. Model is optional: an object with no model but
+// with components is a perfectly good light or logic node.
 type Object struct {
 	Name       string          `yaml:"name"`
 	Model      string          `yaml:"model"`
@@ -112,9 +153,11 @@ func Load(path string) (*Scene, error) {
 	}
 
 	for i := range scene.Objects {
-		if scene.Objects[i].Model == "" {
+		obj := &scene.Objects[i]
+		if obj.Model == "" && len(obj.Components) == 0 {
 			return nil, utils.Logger().Errorf(
-				"scene %s: object %q has no model path", path, scene.Objects[i].Name)
+				"scene %s: object %q has neither a model nor any components, so it would do nothing",
+				path, obj.Name)
 		}
 	}
 

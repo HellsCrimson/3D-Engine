@@ -51,9 +51,28 @@ func (o *Options) applyDefaults() {
 	if o.SkyboxPath == "" {
 		o.SkyboxPath = "./testObjects/skybox"
 	}
-	if o.RPCAddr == "" {
-		o.RPCAddr = "localhost:8080"
+}
+
+// rpcAddress prefers the explicit Option, falling back to the config file.
+func (a *App) rpcAddress() string {
+	if a.opts.RPCAddr != "" {
+		return a.opts.RPCAddr
 	}
+	return a.Config.RPC.Address
+}
+
+// rpcDisabled is true if either the caller or the config turned the editor
+// server off.
+func (a *App) rpcDisabled() bool {
+	return a.opts.DisableRPC || a.Config.RPC.Disable
+}
+
+func toVec3Slice(values [][3]float32) []mgl32.Vec3 {
+	out := make([]mgl32.Vec3, 0, len(values))
+	for _, value := range values {
+		out = append(out, mgl32.Vec3(value))
+	}
+	return out
 }
 
 // App owns every piece of runtime state that used to live as a package-level
@@ -100,6 +119,8 @@ type App struct {
 	physicsDeltaTime float32
 	gravityStrength  float32
 	gravityDirection mgl32.Vec3
+	// gravityAxes are the directions the H key cycles through, from config.
+	gravityAxes []mgl32.Vec3
 
 	lastGravityAxisToggle float64
 
@@ -144,15 +165,17 @@ func New(opts Options) (*App, error) {
 		},
 
 		physicsDeltaTime: 1.0 / float32(fixedUpdateRate),
-		gravityStrength:  9.81,
-		gravityDirection: mgl32.Vec3{0.0, -1.0, 0.0},
+		gravityStrength:  config.Physics.Gravity,
+		gravityAxes:      toVec3Slice(config.Physics.GravityAxes),
 
-		playerHalfExtents:  mgl32.Vec3{0.35, 0.9, 0.35},
-		playerCenterOffset: mgl32.Vec3{0.0, -0.9, 0.0},
-		playerJumpSpeed:    6.0,
+		playerHalfExtents:  mgl32.Vec3(config.Player.HalfExtents),
+		playerCenterOffset: mgl32.Vec3(config.Player.CenterOffset),
+		playerJumpSpeed:    config.Player.JumpSpeed,
 
-		collisionDebugDistance: 80.0,
+		collisionDebugDistance: config.Physics.CollisionDebugDistance,
 	}
+	a.gravityDirection = a.gravityAxes[0]
+	registerBuiltinComponents(a.Components)
 	a.Scenes = NewSceneManager(a, config, opts.ScenePath)
 	// Give despawned entities a chance to run OnDestroy.
 	a.World.onDespawn = a.destroyComponents
@@ -177,8 +200,8 @@ func New(opts Options) (*App, error) {
 	a.Window.SetScrollCallback(a.Camera.ScrollCallback)
 	a.registerDefaultKeys()
 
-	if !opts.DisableRPC {
-		if err := a.startRPCServer(opts.RPCAddr); err != nil {
+	if !a.rpcDisabled() {
+		if err := a.startRPCServer(a.rpcAddress()); err != nil {
 			a.Close()
 			return nil, err
 		}
@@ -392,16 +415,17 @@ func (a *App) render() {
 	view := a.Camera.ComputeView()
 	shader.SetMat4("view", view)
 
-	a.computeLight(shader)
-
 	shader.SetInt("skybox", int32(a.skybox.SkyboxTextureUnit))
 
 	opaqueItems := make([]renderItem, 0)
 	transparentItems := make([]renderItem, 0)
 	debugBoxes := make([]debugBox, 0)
+	lights := lightSet{}
 
 	a.World.Read(func(entities []*Entity) {
 		for _, entity := range entities {
+			lights.collect(entity)
+
 			if entity.Renderer == nil || entity.Renderer.Model == nil {
 				continue
 			}
@@ -434,6 +458,12 @@ func (a *App) render() {
 			}
 		}
 	})
+
+	if lights.droppedPoints > 0 {
+		utils.Logger().Printf("Scene has %d point lights beyond the shader limit of %d; extras ignored",
+			lights.droppedPoints, MaxPointLights)
+	}
+	a.computeLight(shader, &lights)
 
 	if a.State.CollisionDebug && a.State.PlayerGravityMode {
 		player := a.playerAABB(a.Camera.CameraPos)
@@ -589,54 +619,83 @@ func (a *App) appendDebugBox(boxes *[]debugBox, box object.AABB, color mgl32.Vec
 	*boxes = append(*boxes, debugBox{min: box.Min, max: box.Max, color: color})
 }
 
-func (a *App) computeLight(shader *shaders.Shader) {
-	// Directional light
-	shader.SetVec3("dirLight.direction", -0.2, -1.0, -0.3)
-	shader.SetVec3("dirLight.ambient", 0.2, 0.2, 0.2)
-	shader.SetVec3("dirLight.diffuse", 0.5, 0.5, 0.5)
-	shader.SetVec3("dirLight.specular", 1.0, 1.0, 1.0)
-
-	shader.SetInt("nb_point_light", 0)
-	// Point light
-	// for i, pointLightPos := range pointLightPositions {
-	// 	lightingShader.SetVec3Val(fmt.Sprintf("pointLights[%d].position", i), pointLightPos)
-	// 	lightingShader.SetVec3(fmt.Sprintf("pointLights[%d].ambiant", i), 0.05, 0.05, 0.05)
-	// 	lightingShader.SetVec3(fmt.Sprintf("pointLights[%d].diffuse", i), 0.8, 0.8, 0.8)
-	// 	lightingShader.SetVec3(fmt.Sprintf("pointLights[%d].specular", i), 1.0, 1.0, 1.0)
-	// 	lightingShader.SetFloat(fmt.Sprintf("pointLights[%d].constant", i), 1.0)
-	// 	lightingShader.SetFloat(fmt.Sprintf("pointLights[%d].linear", i), 0.09)
-	// 	lightingShader.SetFloat(fmt.Sprintf("pointLights[%d].quadratic", i), 0.032)
-	// }
-
-	// Spot light
-	if a.State.FlashLight {
-		shader.SetVec3Val("spotLight.position", a.Camera.CameraPos)
-		shader.SetVec3Val("spotLight.direction", a.Camera.CameraFront)
-		shader.SetVec3("spotLight.ambient", 0.0, 0.0, 0.0)
-		shader.SetVec3("spotLight.diffuse", 1.0, 1.0, 1.0)
-		shader.SetVec3("spotLight.specular", 1.0, 1.0, 1.0)
-		shader.SetFloat("spotLight.constant", 1.0)
-		shader.SetFloat("spotLight.linear", 0.09)
-		shader.SetFloat("spotLight.quadratic", 0.032)
-		shader.SetFloat("spotLight.cutOff", float32(math.Cos(float64(mgl32.DegToRad(12.5)))))
-		shader.SetFloat("spotLight.outerCutOff", float32(math.Cos(float64(mgl32.DegToRad(15.0)))))
-		shader.SetBool("spotLight.isEnabled", true)
+// computeLight uploads the frame's lights. Everything here used to be
+// hardcoded: one fixed directional light, nb_point_light pinned to 0 so the
+// shader's point-light loop never ran, and a flashlight built from constants.
+// It is all scene data now.
+func (a *App) computeLight(shader *shaders.Shader, lights *lightSet) {
+	if lights.directional != nil {
+		shader.SetVec3Val("dirLight.direction", lights.directional.Direction)
+		shader.SetVec3Val("dirLight.ambient", lights.directional.Ambient)
+		shader.SetVec3Val("dirLight.diffuse", lights.directional.Diffuse)
+		shader.SetVec3Val("dirLight.specular", lights.directional.Specular)
 	} else {
-		shader.SetBool("spotLight.isEnabled", false)
+		// No sun in the scene: contribute nothing rather than leaving whatever
+		// the previous frame uploaded.
+		shader.SetVec3("dirLight.direction", 0, -1, 0)
+		shader.SetVec3("dirLight.ambient", 0, 0, 0)
+		shader.SetVec3("dirLight.diffuse", 0, 0, 0)
+		shader.SetVec3("dirLight.specular", 0, 0, 0)
 	}
+
+	shader.SetInt("nb_point_light", int32(len(lights.points)))
+	for i, placed := range lights.points {
+		prefix := "pointLights[" + strconv.Itoa(i) + "]."
+		shader.SetVec3Val(prefix+"position", placed.position)
+		shader.SetVec3Val(prefix+"ambient", placed.light.Ambient)
+		shader.SetVec3Val(prefix+"diffuse", placed.light.Diffuse)
+		shader.SetVec3Val(prefix+"specular", placed.light.Specular)
+		shader.SetFloat(prefix+"constant", placed.light.Constant)
+		shader.SetFloat(prefix+"linear", placed.light.Linear)
+		shader.SetFloat(prefix+"quadratic", placed.light.Quadratic)
+	}
+
+	a.uploadSpotLight(shader, lights.spot)
+}
+
+func (a *App) uploadSpotLight(shader *shaders.Shader, placed *placedSpotLight) {
+	if placed == nil {
+		shader.SetBool("spotLight.isEnabled", false)
+		return
+	}
+
+	light := placed.light
+	position := placed.position
+	direction := light.Direction
+
+	if light.FollowCamera {
+		// This is the flashlight: it rides the camera and the F key gates it.
+		if !a.State.FlashLight {
+			shader.SetBool("spotLight.isEnabled", false)
+			return
+		}
+		position = a.Camera.CameraPos
+		direction = a.Camera.CameraFront
+	}
+
+	if !light.Enabled {
+		shader.SetBool("spotLight.isEnabled", false)
+		return
+	}
+
+	shader.SetVec3Val("spotLight.position", position)
+	shader.SetVec3Val("spotLight.direction", direction)
+	shader.SetVec3Val("spotLight.ambient", light.Ambient)
+	shader.SetVec3Val("spotLight.diffuse", light.Diffuse)
+	shader.SetVec3Val("spotLight.specular", light.Specular)
+	shader.SetFloat("spotLight.constant", light.Constant)
+	shader.SetFloat("spotLight.linear", light.Linear)
+	shader.SetFloat("spotLight.quadratic", light.Quadratic)
+	shader.SetFloat("spotLight.cutOff", float32(math.Cos(float64(mgl32.DegToRad(light.CutOff)))))
+	shader.SetFloat("spotLight.outerCutOff", float32(math.Cos(float64(mgl32.DegToRad(light.OuterCutOff)))))
+	shader.SetBool("spotLight.isEnabled", true)
 }
 
 func (a *App) processInput() {
-	// Switch gravity axis between -Y and -Z for world-space testing.
+	// Cycle through the gravity axes the config lists, for world-space testing.
 	if a.Window.GetKey(glfw.KeyH) == glfw.Press && glfw.GetTime()-a.lastGravityAxisToggle >= 0.3 {
 		a.lastGravityAxisToggle = glfw.GetTime()
-		if a.gravityDirection == (mgl32.Vec3{0.0, -1.0, 0.0}) {
-			a.gravityDirection = mgl32.Vec3{0.0, 0.0, -1.0}
-			utils.Logger().Println("Gravity axis set to -Z")
-		} else {
-			a.gravityDirection = mgl32.Vec3{0.0, -1.0, 0.0}
-			utils.Logger().Println("Gravity axis set to -Y")
-		}
+		a.cycleGravityAxis()
 	}
 
 	for i := glfw.KeySpace; i < glfw.KeyLast; i++ {
@@ -647,6 +706,24 @@ func (a *App) processInput() {
 			a.Keys.IsPressed[i] = false
 		}
 	}
+}
+
+// cycleGravityAxis advances to the next configured gravity direction.
+func (a *App) cycleGravityAxis() {
+	if len(a.gravityAxes) < 2 {
+		return
+	}
+
+	for i, axis := range a.gravityAxes {
+		if axis == a.gravityDirection {
+			a.gravityDirection = a.gravityAxes[(i+1)%len(a.gravityAxes)]
+			utils.Logger().Println("Gravity axis set to", a.gravityDirection)
+			return
+		}
+	}
+
+	a.gravityDirection = a.gravityAxes[0]
+	utils.Logger().Println("Gravity axis set to", a.gravityDirection)
 }
 
 func (a *App) onFramebufferSize(window *glfw.Window, width, height int) {
@@ -668,11 +745,35 @@ func (a *App) fpsCounter() {
 	}
 }
 
+// resetDynamicState clears the player physics and returns the camera to the
+// current scene's spawn point.
 func (a *App) resetDynamicState() {
 	a.playerVelocity = mgl32.Vec3{0, 0, 0}
 	a.playerGrounded = false
 	a.lastJumpTime = 0
-	if a.Camera != nil {
-		a.Camera.CameraPos = mgl32.Vec3{0.0, 0.0, 3.0}
+
+	if a.Camera == nil {
+		return
 	}
+
+	spawn := a.Scenes.CameraSpawn()
+	a.Camera.CameraPos = mgl32.Vec3(spawn.Position)
+	a.Camera.SetOrientation(spawn.Yaw, spawn.Pitch)
+}
+
+// setSkybox swaps the cubemap when a scene asks for a different one. The old
+// cubemap is deleted, since nothing else references it.
+func (a *App) setSkybox(path string) error {
+	if path == "" || a.skybox == nil || a.skybox.Path == path {
+		return nil
+	}
+
+	shader := a.skybox.Shader
+	a.skybox.Delete()
+
+	a.skybox = object.CreateSkybox(path)
+	a.skybox.Shader = shader
+	a.skybox.LoadCubemap()
+	a.skybox.Shader.SetInt("skybox", int32(a.skybox.SkyboxTextureUnit))
+	return nil
 }

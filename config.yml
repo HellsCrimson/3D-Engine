@@ -9,3 +9,20 @@ defaultSceneMode: default
 sceneModes:
   default: ./scenes/sponza/sponza.yml
   flat: scenes/plane/scene_flat.yml
+
+physics:
+  gravity: 9.81
+  collisionDebugDistance: 80.0
+  # The H key cycles through these.
+  gravityAxes:
+    - [0.0, -1.0, 0.0]
+    - [0.0, 0.0, -1.0]
+
+player:
+  halfExtents: [0.35, 0.9, 0.35]
+  centerOffset: [0.0, -0.9, 0.0]
+  jumpSpeed: 6.0
+
+rpc:
+  address: localhost:8080
+  disable: false

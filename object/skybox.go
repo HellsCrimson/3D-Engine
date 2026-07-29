@@ -106,3 +106,12 @@ func getSkyboxCube() []float32 {
 		1.0, -1.0, 1.0,
 	}
 }
+
+// Delete frees the cubemap and its buffers. The shader is not owned by the
+// skybox and is left alone.
+func (s *Skybox) Delete() {
+	gl.DeleteTextures(1, &s.TextureId)
+	gl.DeleteVertexArrays(1, &s.vao)
+	gl.DeleteBuffers(1, &s.vbo)
+	s.TextureId, s.vao, s.vbo = 0, 0, 0
+}

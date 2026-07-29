@@ -129,6 +129,12 @@ func (c *Camera) MouseCallback(window *glfw.Window, xpos, ypos float64) {
 		c.Pitch = -89.0
 	}
 
+	c.updateVectors()
+}
+
+// updateVectors rebuilds the front/right/up basis from the current yaw and
+// pitch.
+func (c *Camera) updateVectors() {
 	direction := mgl32.Vec3{
 		float32(math.Cos(float64(mgl32.DegToRad(c.Yaw))) * math.Cos(float64(mgl32.DegToRad(c.Pitch)))),
 		float32(math.Sin(float64(mgl32.DegToRad(c.Pitch)))),
@@ -161,4 +167,13 @@ func (c *Camera) ComputeView() mgl32.Mat4 {
 
 func (c *Camera) ComputeProjection(width, height int) mgl32.Mat4 {
 	return mgl32.Perspective(mgl32.DegToRad(c.CameraFov), float32(width)/float32(height), c.renderDistanceMin, c.renderDistanceMax)
+}
+
+// SetOrientation points the camera and rebuilds its basis vectors. Used when a
+// scene defines a spawn orientation.
+func (c *Camera) SetOrientation(yaw, pitch float32) {
+	c.Yaw = yaw
+	c.Pitch = pitch
+	c.firstMouse = true
+	c.updateVectors()
 }
