@@ -1,8 +1,8 @@
 build:
-	go build -o 3DEngine *.go
+	go build -o 3DEngine .
 
 run:
-	go run *.go
+	go run .
 
 run-all:
 	go run . & \

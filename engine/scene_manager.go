@@ -1,4 +1,4 @@
-package main
+package engine
 
 import (
 	"3d-engine/object"
@@ -11,7 +11,12 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
+// SceneManager owns the current/pending scene selection. Scene changes
+// requested from other goroutines are recorded as pending and applied by the
+// frame loop, because LoadScene uploads meshes and textures to the GPU.
 type SceneManager struct {
+	app *App
+
 	mu               sync.Mutex
 	currentScenePath string
 	currentSceneMode string
@@ -22,7 +27,7 @@ type SceneManager struct {
 	fallbackScene    string
 }
 
-func NewSceneManager(config *utils.Config, fallbackScenePath string) *SceneManager {
+func NewSceneManager(app *App, config *utils.Config, fallbackScenePath string) *SceneManager {
 	sceneModes := map[string]string{}
 	defaultMode := ""
 
@@ -34,12 +39,16 @@ func NewSceneManager(config *utils.Config, fallbackScenePath string) *SceneManag
 	}
 
 	return &SceneManager{
+		app:              app,
 		sceneModes:       sceneModes,
 		defaultSceneMode: defaultMode,
 		fallbackScene:    fallbackScenePath,
 	}
 }
 
+// LoadScene imports every object in the scene file and swaps it in. It uploads
+// to the GPU, so it must only be called from the goroutine running the frame
+// loop.
 func (sm *SceneManager) LoadScene(scenePath string) error {
 	loadedScene, err := scene.Load(scenePath)
 	if err != nil {
@@ -64,9 +73,7 @@ func (sm *SceneManager) LoadScene(scenePath string) error {
 		modelID++
 	}
 
-	modelsMu.Lock()
-	models = newModels
-	modelsMu.Unlock()
+	sm.app.setModels(newModels)
 
 	sm.mu.Lock()
 	sm.currentScenePath = scenePath
@@ -125,6 +132,7 @@ func (sm *SceneManager) ListModeNames() []string {
 	return names
 }
 
+// RequestSceneChange is safe to call from any goroutine.
 func (sm *SceneManager) RequestSceneChange(scenePath string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -132,6 +140,7 @@ func (sm *SceneManager) RequestSceneChange(scenePath string) {
 	sm.pendingSceneMode = ""
 }
 
+// RequestSceneModeChange is safe to call from any goroutine.
 func (sm *SceneManager) RequestSceneModeChange(sceneMode string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()

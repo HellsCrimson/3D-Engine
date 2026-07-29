@@ -1,12 +1,13 @@
-package main
+package engine
 
 import (
 	"fmt"
 	"io"
-	"log"
 	"net"
 
 	egrpc "3d-engine/grpc"
+	"3d-engine/object"
+	"3d-engine/utils"
 
 	"github.com/go-gl/mathgl/mgl32"
 	"google.golang.org/grpc"
@@ -17,18 +18,30 @@ import (
 
 type engineServer struct {
 	egrpc.UnimplementedEngineServer
+	app *App
 }
 
-func StartRPCServer() {
-	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", 8080))
+// startRPCServer binds the listener synchronously so a port conflict surfaces
+// as an error from New, then serves on its own goroutine. Handlers never touch
+// GL: they either mutate transforms under the model lock or queue a scene
+// change for the frame loop.
+func (a *App) startRPCServer(addr string) error {
+	lis, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		return fmt.Errorf("failed to listen on %s: %w", addr, err)
 	}
 
-	grpcServer := grpc.NewServer()
-	s := engineServer{}
-	egrpc.RegisterEngineServer(grpcServer, &s)
-	grpcServer.Serve(lis)
+	server := grpc.NewServer()
+	egrpc.RegisterEngineServer(server, &engineServer{app: a})
+	a.rpc = server
+
+	go func() {
+		if err := server.Serve(lis); err != nil {
+			utils.Logger().Println("rpc server stopped:", err)
+		}
+	}()
+
+	return nil
 }
 
 func (eg *engineServer) Stream(stream egrpc.Engine_StreamServer) error {
@@ -133,103 +146,92 @@ func (eg *engineServer) getObjects() *egrpc.Objects {
 		Objects: []*egrpc.Object{},
 	}
 
-	modelsMu.RLock()
-	for _, model := range models {
-		objects.Objects = append(objects.Objects, &egrpc.Object{
-			Id:   model.Id,
-			Name: model.Name,
-			Location: &egrpc.Location{
-				Position: &egrpc.Vector3{
-					X: model.Coordinates.X(),
-					Y: model.Coordinates.Y(),
-					Z: model.Coordinates.Z(),
+	eg.app.Models(func(models []*object.Model) {
+		for _, model := range models {
+			objects.Objects = append(objects.Objects, &egrpc.Object{
+				Id:   model.Id,
+				Name: model.Name,
+				Location: &egrpc.Location{
+					Position: &egrpc.Vector3{
+						X: model.Coordinates.X(),
+						Y: model.Coordinates.Y(),
+						Z: model.Coordinates.Z(),
+					},
+					Rotation: &egrpc.Vector4{
+						X: model.Rotation.X(),
+						Y: model.Rotation.Y(),
+						Z: model.Rotation.Z(),
+						W: model.Rotation.W(),
+					},
+					Scale: &egrpc.Vector3{
+						X: model.Scale.X(),
+						Y: model.Scale.Y(),
+						Z: model.Scale.Z(),
+					},
 				},
-				Rotation: &egrpc.Vector4{
-					X: model.Rotation.X(),
-					Y: model.Rotation.Y(),
-					Z: model.Rotation.Z(),
-					W: model.Rotation.W(),
-				},
-				Scale: &egrpc.Vector3{
-					X: model.Scale.X(),
-					Y: model.Scale.Y(),
-					Z: model.Scale.Z(),
-				},
-			},
-		})
-
-	}
-	modelsMu.RUnlock()
+			})
+		}
+	})
 
 	return objects
 }
 
-func (eg *engineServer) moveObject(object *egrpc.Object) error {
-	if object == nil || object.Location == nil || object.Location.Position == nil {
+// mutate applies fn to the addressed model, translating a miss into a NotFound.
+func (eg *engineServer) mutate(id uint32, fn func(model *object.Model)) error {
+	if eg.app.MutateModel(id, fn) {
+		return nil
+	}
+	return status.Errorf(codes.NotFound, "object %d not found", id)
+}
+
+func (eg *engineServer) moveObject(obj *egrpc.Object) error {
+	if obj == nil || obj.Location == nil || obj.Location.Position == nil {
 		return status.Error(codes.InvalidArgument, "object.location.position is required")
 	}
 
-	modelsMu.Lock()
-	defer modelsMu.Unlock()
-	for _, model := range models {
-		if model.Id == object.Id {
-			model.Coordinates = mgl32.Vec3{object.Location.Position.X, object.Location.Position.Y, object.Location.Position.Z}
-			return nil
-		}
-	}
-
-	return status.Errorf(codes.NotFound, "object %d not found", object.Id)
+	return eg.mutate(obj.Id, func(model *object.Model) {
+		model.Coordinates = toVec3(obj.Location.Position)
+	})
 }
 
-func (eg *engineServer) rotateObject(object *egrpc.Object) error {
-	if object == nil || object.Location == nil || object.Location.Rotation == nil {
+func (eg *engineServer) rotateObject(obj *egrpc.Object) error {
+	if obj == nil || obj.Location == nil || obj.Location.Rotation == nil {
 		return status.Error(codes.InvalidArgument, "object.location.rotation is required")
 	}
 
-	modelsMu.Lock()
-	defer modelsMu.Unlock()
-	for _, model := range models {
-		if model.Id == object.Id {
-			model.Rotation = mgl32.Vec4{object.Location.Rotation.X, object.Location.Rotation.Y, object.Location.Rotation.Z, object.Location.Rotation.W}
-			return nil
-		}
-	}
-	return status.Errorf(codes.NotFound, "object %d not found", object.Id)
+	return eg.mutate(obj.Id, func(model *object.Model) {
+		model.Rotation = toVec4(obj.Location.Rotation)
+	})
 }
 
-func (eg *engineServer) scaleObject(object *egrpc.Object) error {
-	if object == nil || object.Location == nil || object.Location.Scale == nil {
+func (eg *engineServer) scaleObject(obj *egrpc.Object) error {
+	if obj == nil || obj.Location == nil || obj.Location.Scale == nil {
 		return status.Error(codes.InvalidArgument, "object.location.scale is required")
 	}
 
-	modelsMu.Lock()
-	defer modelsMu.Unlock()
-	for _, model := range models {
-		if model.Id == object.Id {
-			model.Scale = mgl32.Vec3{object.Location.Scale.X, object.Location.Scale.Y, object.Location.Scale.Z}
-			return nil
-		}
-	}
-	return status.Errorf(codes.NotFound, "object %d not found", object.Id)
+	return eg.mutate(obj.Id, func(model *object.Model) {
+		model.Scale = toVec3(obj.Location.Scale)
+	})
 }
 
-func (eg *engineServer) updateObject(object *egrpc.Object) error {
-	if object == nil || object.Location == nil || object.Location.Position == nil || object.Location.Rotation == nil || object.Location.Scale == nil {
+func (eg *engineServer) updateObject(obj *egrpc.Object) error {
+	if obj == nil || obj.Location == nil || obj.Location.Position == nil || obj.Location.Rotation == nil || obj.Location.Scale == nil {
 		return status.Error(codes.InvalidArgument, "object.location with position/rotation/scale is required")
 	}
 
-	modelsMu.Lock()
-	defer modelsMu.Unlock()
-	for _, model := range models {
-		if model.Id == object.Id {
-			model.Coordinates = mgl32.Vec3{object.Location.Position.X, object.Location.Position.Y, object.Location.Position.Z}
-			model.Rotation = mgl32.Vec4{object.Location.Rotation.X, object.Location.Rotation.Y, object.Location.Rotation.Z, object.Location.Rotation.W}
-			model.Scale = mgl32.Vec3{object.Location.Scale.X, object.Location.Scale.Y, object.Location.Scale.Z}
-			return nil
-		}
-	}
+	return eg.mutate(obj.Id, func(model *object.Model) {
+		model.Coordinates = toVec3(obj.Location.Position)
+		model.Rotation = toVec4(obj.Location.Rotation)
+		model.Scale = toVec3(obj.Location.Scale)
+	})
+}
 
-	return status.Errorf(codes.NotFound, "object %d not found", object.Id)
+func toVec3(v *egrpc.Vector3) mgl32.Vec3 {
+	return mgl32.Vec3{v.X, v.Y, v.Z}
+}
+
+func toVec4(v *egrpc.Vector4) mgl32.Vec4 {
+	return mgl32.Vec4{v.X, v.Y, v.Z, v.W}
 }
 
 func (eg *engineServer) loadScene(sceneRef *egrpc.SceneRef) error {
@@ -237,18 +239,18 @@ func (eg *engineServer) loadScene(sceneRef *egrpc.SceneRef) error {
 		return status.Error(codes.InvalidArgument, "scene.path is required")
 	}
 
-	sceneMgr.RequestSceneChange(sceneRef.GetPath())
+	eg.app.Scenes.RequestSceneChange(sceneRef.GetPath())
 	return nil
 }
 
 func (eg *engineServer) getSceneModes() *egrpc.SceneModes {
-	modeNames := sceneMgr.ListModeNames()
-	modesMap := sceneMgr.ListModes()
+	modeNames := eg.app.Scenes.ListModeNames()
+	modesMap := eg.app.Scenes.ListModes()
 
 	result := &egrpc.SceneModes{
 		Modes:            make([]*egrpc.SceneMode, 0, len(modeNames)),
-		CurrentMode:      sceneMgr.CurrentSceneMode(),
-		CurrentScenePath: sceneMgr.CurrentScenePath(),
+		CurrentMode:      eg.app.Scenes.CurrentSceneMode(),
+		CurrentScenePath: eg.app.Scenes.CurrentScenePath(),
 	}
 
 	for _, mode := range modeNames {
@@ -265,6 +267,6 @@ func (eg *engineServer) loadSceneMode(sceneModeRef *egrpc.SceneModeRef) error {
 		return status.Error(codes.InvalidArgument, "scene_mode.mode is required")
 	}
 
-	sceneMgr.RequestSceneModeChange(sceneModeRef.GetMode())
+	eg.app.Scenes.RequestSceneModeChange(sceneModeRef.GetMode())
 	return nil
 }
