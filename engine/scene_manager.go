@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"3d-engine/object"
 	"3d-engine/scene"
 	"3d-engine/utils"
 	"fmt"
@@ -60,6 +59,9 @@ func (sm *SceneManager) LoadScene(scenePath string) error {
 		return err
 	}
 
+	// Build the new scene before tearing down the old one. If a model fails to
+	// import we release only what this attempt acquired and leave the running
+	// scene untouched, rather than unloading it and having nothing to show.
 	entities := make([]*Entity, 0, len(loadedScene.Objects))
 
 	for i := range loadedScene.Objects {
@@ -67,12 +69,20 @@ func (sm *SceneManager) LoadScene(scenePath string) error {
 
 		entity, err := sm.buildEntity(obj)
 		if err != nil {
+			sm.releaseEntities(entities)
 			return err
 		}
 		entities = append(entities, entity)
 	}
 
+	// Hold a reference to the outgoing scene's models until after the swap, so
+	// a model shared with the incoming scene never drops to zero refs and gets
+	// deleted only to be re-imported.
+	outgoing := sm.app.currentSceneEntities()
+
 	sm.app.World.Replace(entities)
+
+	sm.releaseEntities(outgoing)
 
 	sm.mu.Lock()
 	sm.currentScenePath = scenePath
@@ -86,11 +96,9 @@ func (sm *SceneManager) LoadScene(scenePath string) error {
 // transform, the built-in body, and whatever registered components the file
 // asked for.
 func (sm *SceneManager) buildEntity(obj *scene.Object) (*Entity, error) {
-	modelPath := obj.ModelPath()
-
-	model := &object.Model{}
-	if err := model.Import(modelPath); err != nil {
-		return nil, fmt.Errorf("could not load model %q: %w", modelPath, err)
+	model, err := sm.app.Assets.Acquire(obj.Model)
+	if err != nil {
+		return nil, fmt.Errorf("could not load model %q: %w", obj.Model, err)
 	}
 
 	transform := obj.ResolveTransform()
@@ -101,7 +109,7 @@ func (sm *SceneManager) buildEntity(obj *scene.Object) (*Entity, error) {
 		Scale:    mgl32.Vec3(transform.Scale),
 	})
 	entity.Renderer = &MeshRenderer{Model: model}
-	entity.Body = &RigidBody{Static: obj.ResolveStatic()}
+	entity.Body = &RigidBody{Static: obj.IsStatic()}
 
 	for i := range obj.Components {
 		spec := &obj.Components[i]
@@ -121,6 +129,18 @@ func (sm *SceneManager) buildEntity(obj *scene.Object) (*Entity, error) {
 	}
 
 	return entity, nil
+}
+
+// releaseEntities returns each entity's model to the cache.
+func (sm *SceneManager) releaseEntities(entities []*Entity) {
+	for _, entity := range entities {
+		if entity.Renderer == nil || entity.Renderer.Model == nil {
+			continue
+		}
+		if err := sm.app.Assets.Release(entity.Renderer.Model); err != nil {
+			utils.Logger().Printf("Releasing model: %v", err)
+		}
+	}
 }
 
 func (sm *SceneManager) CurrentScenePath() string {

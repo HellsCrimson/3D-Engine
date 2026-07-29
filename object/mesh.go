@@ -208,3 +208,12 @@ func (m *Mesh) DrawPass(shader *shaders.Shader, drawTransparent bool) {
 		// gl.DepthMask(true)
 	}
 }
+
+// Delete frees the mesh's GPU buffers. The textures are owned by the texture
+// cache and released by Model.Delete instead.
+func (m *Mesh) Delete() {
+	gl.DeleteVertexArrays(1, &m.vao)
+	gl.DeleteBuffers(1, &m.vbo)
+	gl.DeleteBuffers(1, &m.ebo)
+	m.vao, m.vbo, m.ebo = 0, 0, 0
+}

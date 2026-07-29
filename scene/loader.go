@@ -7,13 +7,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// CurrentVersion is the scene format this build writes and prefers.
+// CurrentVersion is the scene format this build reads and writes.
 //
-// Version 1 is the original flat layout: a model path in `path`, the transform
-// spread across originX/scaleY/rotationAngle/... fields, and `isStatic`. It has
-// no room for per-component properties, which is why version 2 exists. Files
-// without a `version:` key are read as version 1, so existing scenes keep
-// loading unchanged.
+// Version 1 was the original flat layout — a model path in `path`, the
+// transform spread across originX/scaleY/rotationAngle/... fields, and
+// `isStatic`. It had no room for per-component properties, so version 2
+// replaced it with a nested transform plus `body` and `components` blocks.
+// Version 1 is no longer accepted; a file must declare its version.
 const CurrentVersion = 2
 
 type Scene struct {
@@ -65,57 +65,29 @@ func (c *ComponentSpec) HasProps() bool {
 }
 
 type Object struct {
-	Name string `yaml:"name"`
-
-	// Version 2 fields.
+	Name       string          `yaml:"name"`
 	Model      string          `yaml:"model"`
 	Transform  *TransformSpec  `yaml:"transform"`
 	Body       *BodySpec       `yaml:"body"`
 	Components []ComponentSpec `yaml:"components"`
-
-	// Version 1 fields, still honoured when the version 2 equivalents are absent.
-	Path          string  `yaml:"path"`
-	IsStatic      bool    `yaml:"isStatic"`
-	OriginX       float32 `yaml:"originX"`
-	OriginY       float32 `yaml:"originY"`
-	OriginZ       float32 `yaml:"originZ"`
-	ScaleX        float32 `yaml:"scaleX"`
-	ScaleY        float32 `yaml:"scaleY"`
-	ScaleZ        float32 `yaml:"scaleZ"`
-	RotationAngle float32 `yaml:"rotationAngle"`
-	RotationX     float32 `yaml:"rotationX"`
-	RotationY     float32 `yaml:"rotationY"`
-	RotationZ     float32 `yaml:"rotationZ"`
 }
 
-// ModelPath returns the model to import, preferring the version 2 key.
-func (o *Object) ModelPath() string {
-	if o.Model != "" {
-		return o.Model
-	}
-	return o.Path
-}
-
-// ResolveTransform returns the placement, reading whichever layout the file
-// used.
+// ResolveTransform returns the placement, defaulting to the identity when the
+// object omits the block entirely.
 func (o *Object) ResolveTransform() TransformSpec {
 	if o.Transform != nil {
 		return *o.Transform
 	}
 
 	return TransformSpec{
-		Position: [3]float32{o.OriginX, o.OriginY, o.OriginZ},
-		Rotation: [4]float32{o.RotationX, o.RotationY, o.RotationZ, o.RotationAngle},
-		Scale:    [3]float32{o.ScaleX, o.ScaleY, o.ScaleZ},
+		Rotation: [4]float32{0, 1, 0, 0},
+		Scale:    [3]float32{1, 1, 1},
 	}
 }
 
-// ResolveStatic returns whether the body is static, from either layout.
-func (o *Object) ResolveStatic() bool {
-	if o.Body != nil {
-		return o.Body.Static
-	}
-	return o.IsStatic
+// IsStatic reports whether the body should be excluded from integration.
+func (o *Object) IsStatic() bool {
+	return o.Body != nil && o.Body.Static
 }
 
 func Load(path string) (*Scene, error) {
@@ -133,17 +105,14 @@ func Load(path string) (*Scene, error) {
 		return nil, utils.Logger().Errorf("failed to parse YAML scene: %s", err)
 	}
 
-	if scene.Version == 0 {
-		scene.Version = 1
-	}
-	if scene.Version > CurrentVersion {
+	if scene.Version != CurrentVersion {
 		return nil, utils.Logger().Errorf(
-			"scene %s is version %d but this build understands up to %d",
+			"scene %s declares version %d; this build reads version %d",
 			path, scene.Version, CurrentVersion)
 	}
 
 	for i := range scene.Objects {
-		if scene.Objects[i].ModelPath() == "" {
+		if scene.Objects[i].Model == "" {
 			return nil, utils.Logger().Errorf(
 				"scene %s: object %q has no model path", path, scene.Objects[i].Name)
 		}

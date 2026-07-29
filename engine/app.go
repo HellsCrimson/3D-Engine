@@ -4,6 +4,7 @@
 package engine
 
 import (
+	"3d-engine/assets"
 	"3d-engine/camera"
 	"3d-engine/object"
 	"3d-engine/shaders"
@@ -11,8 +12,11 @@ import (
 	"3d-engine/utils"
 	"fmt"
 	"math"
+	"os"
+	"os/signal"
 	"sort"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/go-gl/gl/v4.6-core/gl"
@@ -81,6 +85,10 @@ type App struct {
 	// World holds the scene's entities and owns their locking.
 	World *World
 
+	// Assets keeps imported models resident and shared, and is what frees them
+	// when the last scene using them goes away.
+	Assets *assets.Cache
+
 	// commands carries work from other goroutines back onto the frame loop.
 	commands commandQueue
 
@@ -128,6 +136,7 @@ func New(opts Options) (*App, error) {
 		World:  NewWorld(),
 
 		Components: NewComponentRegistry(),
+		Assets:     assets.NewCache(),
 
 		State: State{
 			CaptureCursor:  true,
@@ -248,11 +257,32 @@ func (a *App) initResources() error {
 	return nil
 }
 
+// Quit asks the frame loop to stop after the current frame. Safe from any
+// goroutine.
+func (a *App) Quit() {
+	if a.Window != nil {
+		a.Window.SetShouldClose(true)
+	}
+}
+
 // Run drives the frame loop until the window is closed.
 func (a *App) Run() error {
 	fixedDeltaTime := time.Second / time.Duration(fixedUpdateRate)
 	ticker := time.NewTicker(fixedDeltaTime)
 	defer ticker.Stop()
+
+	// Without this, Ctrl+C kills the process mid-frame and Close never runs, so
+	// the shutdown path that releases assets is skipped entirely.
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+
+	go func() {
+		if _, ok := <-signals; ok {
+			utils.Logger().Println("Shutting down")
+			a.Quit()
+		}
+	}()
 
 	for !a.Window.ShouldClose() {
 		currentFrame := float32(glfw.GetTime())
@@ -295,6 +325,15 @@ func (a *App) Close() {
 	// Release anyone blocked in Do before the loop stops draining.
 	a.commands.close()
 
+	// Drop the live scene so shutdown frees what it allocated. Clearing the
+	// world first runs OnDestroy while the models are still valid; releasing
+	// them beforehand would hand destructors freed GL objects.
+	if a.World != nil && a.Assets != nil {
+		outgoing := a.currentSceneEntities()
+		a.World.Replace(nil)
+		a.Scenes.releaseEntities(outgoing)
+	}
+
 	if a.rpc != nil {
 		a.rpc.Stop()
 		a.rpc = nil
@@ -325,6 +364,16 @@ func (a *App) Close() {
 
 // Models runs fn under the read lock. The slice is only valid for the duration
 // of the call — do not retain it.
+// currentSceneEntities snapshots the live entities so the scene manager can
+// release their assets after the swap.
+func (a *App) currentSceneEntities() []*Entity {
+	var snapshot []*Entity
+	a.World.Read(func(entities []*Entity) {
+		snapshot = append(snapshot, entities...)
+	})
+	return snapshot
+}
+
 type renderItem struct {
 	mesh     *object.Mesh
 	modelMat mgl32.Mat4

@@ -24,6 +24,22 @@ type Model struct {
 	hasLocalBounds bool
 }
 
+// Delete frees every GPU resource the model owns: the meshes' buffers, and one
+// release per texture it acquired. Must run on the GL thread.
+func (m *Model) Delete() {
+	for i := range m.Meshes {
+		m.Meshes[i].Delete()
+	}
+	m.Meshes = nil
+
+	for _, texture := range m.TexturesLoaded {
+		if err := tex.Release(texture.Path); err != nil {
+			utils.Logger().Printf("Releasing texture: %v", err)
+		}
+	}
+	m.TexturesLoaded = nil
+}
+
 func (m *Model) Draw(shader *shaders.Shader) {
 	for _, mesh := range m.Meshes {
 		mesh.Draw(shader)
@@ -137,38 +153,38 @@ func (m *Model) loadMaterialTextures(material *asig.Material, textureType asig.T
 		if err != nil {
 			return nil, fmt.Errorf("failed to get material texture: %w", err)
 		}
-		skip := false
+		// Textures are keyed by their resolved path, since that is what has to
+		// be handed back to the cache on release.
+		resolved := filepath.Join(m.Directory, aTexture.Path)
 
+		skip := false
 		for _, loaded := range m.TexturesLoaded {
-			if loaded.Path == aTexture.Path {
+			if loaded.Path == resolved {
 				textures = append(textures, loaded)
 				skip = true
 				break
 			}
 		}
-
-		if !skip {
-			var texture Texture
-
-			isTransparent := false
-			textureId, err := textureFromFile(aTexture.Path, m.Directory, &isTransparent)
-			if err != nil {
-				return nil, fmt.Errorf("failed to load texture %q: %w", aTexture.Path, err)
-			}
-
-			texture.Id = textureId
-			texture.Path = aTexture.Path
-			texture.Type = typeName
-			texture.HasTransparency = isTransparent
-
-			textures = append(textures, texture)
-			m.TexturesLoaded = append(m.TexturesLoaded, texture)
+		if skip {
+			continue
 		}
+
+		// One Acquire per distinct texture in this model, matched by one
+		// Release in Model.Delete.
+		textureId, isTransparent, err := tex.Acquire(resolved)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load texture %q: %w", resolved, err)
+		}
+
+		texture := Texture{
+			Id:              textureId,
+			Path:            resolved,
+			Type:            typeName,
+			HasTransparency: isTransparent,
+		}
+		textures = append(textures, texture)
+		m.TexturesLoaded = append(m.TexturesLoaded, texture)
 	}
 
 	return textures, nil
-}
-
-func textureFromFile(path, directory string, isTransparent *bool) (uint32, error) {
-	return tex.Load(directory+"/"+path, isTransparent)
 }
