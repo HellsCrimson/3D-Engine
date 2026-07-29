@@ -34,6 +34,13 @@ type Editor struct {
 	sceneModes    []string
 	selectedScene int
 
+	// savePath is where the Save button writes. It follows the loaded scene
+	// until the user types a path of their own, which savePathEdited records —
+	// otherwise a scene switch would silently retarget a deliberate Save As.
+	savePath       string
+	savePathEdited bool
+	saveStatus     string
+
 	// status shows the last failed operation, e.g. editing an entity that was
 	// despawned between frames.
 	status string

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"sync"
 
@@ -70,18 +71,33 @@ type ComponentFactory func() Component
 // A game registers its components at startup:
 //
 //	app.Components.Register("Spinner", func() engine.Component { return &Spinner{} })
+//
+// The mapping is kept invertible, because saving a scene has to turn a live
+// component back into the name a scene file would use for it.
 type ComponentRegistry struct {
 	mu    sync.RWMutex
 	types map[string]ComponentFactory
+	// names is the reverse of types, keyed by the Go type the factory builds.
+	names map[reflect.Type]string
 }
 
 func NewComponentRegistry() *ComponentRegistry {
-	return &ComponentRegistry{types: map[string]ComponentFactory{}}
+	return &ComponentRegistry{
+		types: map[string]ComponentFactory{},
+		names: map[reflect.Type]string{},
+	}
 }
 
 // Register makes a component type available to scene files. Registering the
 // same name twice is an error rather than a silent overwrite, since the second
 // registration would change what every existing scene file means.
+//
+// Two names for one Go type is also an error: the scene saver looks components
+// up by type, and an ambiguous reverse mapping would make what gets written
+// depend on map iteration order.
+//
+// The factory is called once here, both to validate it and to learn the type it
+// builds. Factories are expected to be plain constructors.
 func (r *ComponentRegistry) Register(name string, factory ComponentFactory) error {
 	if name == "" {
 		return fmt.Errorf("component type name must not be empty")
@@ -90,14 +106,41 @@ func (r *ComponentRegistry) Register(name string, factory ComponentFactory) erro
 		return fmt.Errorf("component type %q needs a factory", name)
 	}
 
+	sample := factory()
+	if sample == nil {
+		return fmt.Errorf("factory for component type %q returned nil", name)
+	}
+	sampleType := reflect.TypeOf(sample)
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if _, exists := r.types[name]; exists {
 		return fmt.Errorf("component type %q is already registered", name)
 	}
+	if existing, exists := r.names[sampleType]; exists {
+		return fmt.Errorf("component type %q builds %s, which is already registered as %q",
+			name, sampleType, existing)
+	}
+
 	r.types[name] = factory
+	r.names[sampleType] = name
 	return nil
+}
+
+// NameOf returns the scene-file type name for a live component. It is the
+// inverse of New, and it is what lets the scene saver write a component back out
+// under the name a scene file would use to ask for it.
+func (r *ComponentRegistry) NameOf(component Component) (string, bool) {
+	if component == nil {
+		return "", false
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	name, ok := r.names[reflect.TypeOf(component)]
+	return name, ok
 }
 
 // MustRegister is Register for setup code that should fail loudly.

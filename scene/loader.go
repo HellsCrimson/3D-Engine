@@ -18,8 +18,8 @@ const CurrentVersion = 2
 
 type Scene struct {
 	Version int         `yaml:"version"`
-	Skybox  string      `yaml:"skybox"`
-	Camera  *CameraSpec `yaml:"camera"`
+	Skybox  string      `yaml:"skybox,omitempty"`
+	Camera  *CameraSpec `yaml:"camera,omitempty"`
 	Objects []Object    `yaml:"objects"`
 }
 
@@ -93,9 +93,12 @@ type BodySpec struct {
 // ComponentSpec names a registered component type and carries its properties
 // verbatim. Props stays an undecoded node because only the engine's component
 // registry knows what Go type to decode it into.
+//
+// Props is omitempty so a component with nothing to configure round-trips as a
+// bare `type:` line rather than growing an empty `props: null`.
 type ComponentSpec struct {
 	Type  string    `yaml:"type"`
-	Props yaml.Node `yaml:"props"`
+	Props yaml.Node `yaml:"props,omitempty"`
 }
 
 // HasProps reports whether the spec carried a props block to decode.
@@ -105,12 +108,16 @@ func (c *ComponentSpec) HasProps() bool {
 
 // Object is one scene entity. Model is optional: an object with no model but
 // with components is a perfectly good light or logic node.
+//
+// The omitempty tags are for Save's benefit: a saved scene should look like one
+// a human would write, so a light does not get an empty `model: ""` and a
+// non-physical object does not get a `body: null`.
 type Object struct {
 	Name       string          `yaml:"name"`
-	Model      string          `yaml:"model"`
-	Transform  *TransformSpec  `yaml:"transform"`
-	Body       *BodySpec       `yaml:"body"`
-	Components []ComponentSpec `yaml:"components"`
+	Model      string          `yaml:"model,omitempty"`
+	Transform  *TransformSpec  `yaml:"transform,omitempty"`
+	Body       *BodySpec       `yaml:"body,omitempty"`
+	Components []ComponentSpec `yaml:"components,omitempty"`
 }
 
 // ResolveTransform returns the placement, defaulting to the identity when the

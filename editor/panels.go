@@ -16,12 +16,59 @@ func (e *Editor) draw() {
 	e.drawSceneModes()
 	imgui.Separator()
 
+	e.drawSave()
+	imgui.Separator()
+
 	rows := e.entityRows()
 	e.drawEntityList(rows)
 	imgui.Separator()
 	e.drawInspector()
 
 	imgui.End()
+}
+
+// drawSave writes the live world back to a scene file.
+//
+// The path defaults to the scene currently loaded, so the common case is Save
+// over what you opened, but it stays editable so the world can be forked into a
+// new file without leaving the editor. It is re-defaulted whenever the loaded
+// scene changes, unless the field has been typed into.
+func (e *Editor) drawSave() {
+	current := e.app.Scenes.CurrentScenePath()
+	if !e.savePathEdited && e.savePath != current {
+		e.savePath = current
+	}
+
+	imgui.PushItemWidth(320)
+	if imgui.InputTextWithHint("##save-path", "scene path", &e.savePath, 0, nil) {
+		e.savePathEdited = true
+	}
+	imgui.PopItemWidth()
+
+	imgui.SameLine()
+	if imgui.Button("Save") {
+		// Frame runs on the frame-loop goroutine, which is where SaveScene has
+		// to be called: it reads the skybox and the camera, and both are only
+		// written there.
+		if err := e.app.SaveScene(e.savePath); err != nil {
+			e.saveStatus = err.Error()
+		} else {
+			e.saveStatus = fmt.Sprintf("Saved to %s", e.savePath)
+		}
+	}
+
+	if e.savePathEdited {
+		imgui.SameLine()
+		if imgui.Button("Reset path") {
+			e.savePathEdited = false
+			e.savePath = current
+			e.saveStatus = ""
+		}
+	}
+
+	if e.saveStatus != "" {
+		imgui.Text(e.saveStatus)
+	}
 }
 
 func (e *Editor) drawStats() {
