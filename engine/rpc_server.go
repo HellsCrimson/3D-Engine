@@ -149,7 +149,7 @@ func (eg *engineServer) getObjects() *egrpc.Objects {
 		for _, entity := range entities {
 			transform := entity.Transform()
 			objects.Objects = append(objects.Objects, &egrpc.Object{
-				Id:   entity.ID,
+				Id:   entity.Handle().Encode(),
 				Name: entity.Name,
 				Location: &egrpc.Location{
 					Position: &egrpc.Vector3{
@@ -176,12 +176,15 @@ func (eg *engineServer) getObjects() *egrpc.Objects {
 	return objects
 }
 
-// mutate applies fn to the addressed entity, translating a miss into a NotFound.
-func (eg *engineServer) mutate(id uint32, fn func(e *Entity)) error {
-	if eg.app.World.Mutate(id, fn) {
+// mutate applies fn to the addressed entity. A handle that no longer resolves —
+// because the entity was despawned or the scene was reloaded — is a NotFound
+// rather than a silent write to whatever now occupies the slot.
+func (eg *engineServer) mutate(id uint64, fn func(e *Entity)) error {
+	handle := DecodeHandle(id)
+	if eg.app.World.Mutate(handle, fn) {
 		return nil
 	}
-	return status.Errorf(codes.NotFound, "object %d not found", id)
+	return status.Errorf(codes.NotFound, "object %s not found", handle)
 }
 
 func (eg *engineServer) moveObject(obj *egrpc.Object) error {

@@ -27,8 +27,10 @@ type RigidBody struct {
 // the cached world matrix of this entity and everything below it, which direct
 // field assignment would silently skip.
 type Entity struct {
-	ID   uint32
 	Name string
+
+	// handle is assigned by the World on spawn and cleared on despawn.
+	handle Handle
 
 	local    Transform
 	parent   *Entity
@@ -37,8 +39,42 @@ type Entity struct {
 	world      mgl32.Mat4
 	worldDirty bool
 
+	// Renderer and Body are the built-in components. They stay typed fields
+	// rather than entries in components so the render and physics loops can
+	// reach them without a type assertion per entity per frame.
 	Renderer *MeshRenderer
 	Body     *RigidBody
+
+	components []Component
+	// unstarted holds components whose Start has not run yet.
+	unstarted []Component
+}
+
+// AddComponent attaches a component. Its Start runs at the next update.
+func (e *Entity) AddComponent(components ...Component) {
+	for _, component := range components {
+		if component == nil {
+			continue
+		}
+		e.components = append(e.components, component)
+		e.unstarted = append(e.unstarted, component)
+	}
+}
+
+// Components returns the attached components; treat the slice as read-only.
+func (e *Entity) Components() []Component {
+	return e.components
+}
+
+// takeUnstarted returns the components awaiting Start and clears the queue.
+func (e *Entity) takeUnstarted() []Component {
+	if len(e.unstarted) == 0 {
+		return nil
+	}
+
+	pending := e.unstarted
+	e.unstarted = nil
+	return pending
 }
 
 func NewEntity(name string) *Entity {
@@ -47,6 +83,12 @@ func NewEntity(name string) *Entity {
 		local:      IdentityTransform(),
 		worldDirty: true,
 	}
+}
+
+// Handle is the entity's stable identity. It is the zero Handle until the
+// entity is spawned into a World.
+func (e *Entity) Handle() Handle {
+	return e.handle
 }
 
 func (e *Entity) Transform() Transform {

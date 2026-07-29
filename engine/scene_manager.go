@@ -62,21 +62,13 @@ func (sm *SceneManager) LoadScene(scenePath string) error {
 
 	entities := make([]*Entity, 0, len(loadedScene.Objects))
 
-	for _, obj := range loadedScene.Objects {
-		model := &object.Model{}
-		if err := model.Import(obj.Path); err != nil {
-			return fmt.Errorf("could not load model %q: %w", obj.Path, err)
+	for i := range loadedScene.Objects {
+		obj := &loadedScene.Objects[i]
+
+		entity, err := sm.buildEntity(obj)
+		if err != nil {
+			return err
 		}
-
-		entity := NewEntity(obj.Name)
-		entity.SetTransform(Transform{
-			Position: mgl32.Vec3{obj.OriginX, obj.OriginY, obj.OriginZ},
-			Rotation: mgl32.Vec4{obj.RotationX, obj.RotationY, obj.RotationZ, obj.RotationAngle},
-			Scale:    mgl32.Vec3{obj.ScaleX, obj.ScaleY, obj.ScaleZ},
-		})
-		entity.Renderer = &MeshRenderer{Model: model}
-		entity.Body = &RigidBody{Static: obj.IsStatic}
-
 		entities = append(entities, entity)
 	}
 
@@ -88,6 +80,47 @@ func (sm *SceneManager) LoadScene(scenePath string) error {
 	sm.mu.Unlock()
 
 	return nil
+}
+
+// buildEntity turns one scene-file object into an entity: the model asset, the
+// transform, the built-in body, and whatever registered components the file
+// asked for.
+func (sm *SceneManager) buildEntity(obj *scene.Object) (*Entity, error) {
+	modelPath := obj.ModelPath()
+
+	model := &object.Model{}
+	if err := model.Import(modelPath); err != nil {
+		return nil, fmt.Errorf("could not load model %q: %w", modelPath, err)
+	}
+
+	transform := obj.ResolveTransform()
+	entity := NewEntity(obj.Name)
+	entity.SetTransform(Transform{
+		Position: mgl32.Vec3(transform.Position),
+		Rotation: mgl32.Vec4(transform.Rotation),
+		Scale:    mgl32.Vec3(transform.Scale),
+	})
+	entity.Renderer = &MeshRenderer{Model: model}
+	entity.Body = &RigidBody{Static: obj.ResolveStatic()}
+
+	for i := range obj.Components {
+		spec := &obj.Components[i]
+
+		component, err := sm.app.Components.New(spec.Type)
+		if err != nil {
+			return nil, fmt.Errorf("object %q: %w", obj.Name, err)
+		}
+
+		if spec.HasProps() {
+			if err := spec.Props.Decode(component); err != nil {
+				return nil, fmt.Errorf("object %q: component %q props: %w", obj.Name, spec.Type, err)
+			}
+		}
+
+		entity.AddComponent(component)
+	}
+
+	return entity, nil
 }
 
 func (sm *SceneManager) CurrentScenePath() string {

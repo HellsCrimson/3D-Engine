@@ -52,7 +52,7 @@ message Objects {
 
 message Object {
   string name = 1;
-  uint32 id = 2;
+  uint64 id = 2;
 
   Location location = 3;
 }

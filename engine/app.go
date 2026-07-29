@@ -63,6 +63,10 @@ type App struct {
 	Scenes *SceneManager
 	Keys   *KeyHandler
 
+	// Components maps scene-file type names to Go constructors. A game
+	// registers its behaviours here before calling Run.
+	Components *ComponentRegistry
+
 	// State holds the runtime toggles (wireframe, gravity, debug boxes, ...).
 	State State
 
@@ -123,6 +127,8 @@ func New(opts Options) (*App, error) {
 		Keys:   NewKeyHandler(),
 		World:  NewWorld(),
 
+		Components: NewComponentRegistry(),
+
 		State: State{
 			CaptureCursor:  true,
 			GravityEnabled: true,
@@ -139,6 +145,8 @@ func New(opts Options) (*App, error) {
 		collisionDebugDistance: 80.0,
 	}
 	a.Scenes = NewSceneManager(a, config, opts.ScenePath)
+	// Give despawned entities a chance to run OnDestroy.
+	a.World.onDespawn = a.destroyComponents
 
 	if err := a.initWindow(); err != nil {
 		a.Close()
@@ -269,6 +277,8 @@ func (a *App) Run() error {
 			a.fixedUpdate()
 		default:
 		}
+
+		a.startAndUpdateComponents()
 
 		a.render()
 
@@ -414,6 +424,7 @@ func (a *App) render() {
 
 func (a *App) fixedUpdate() {
 	a.World.Write(func(entities []*Entity) {
+		a.fixedUpdateComponents(entities)
 		if a.State.GravityEnabled {
 			a.stepBodies(entities)
 		}

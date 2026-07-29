@@ -164,7 +164,10 @@ func makeObjectTable() {
 	imgui.Text("Id")
 
 	imgui.TableNextColumn()
-	imgui.Text(fmt.Sprintf("%d", selectedObject.Id))
+	// The engine packs a handle into the id: slot index in the low 32 bits,
+	// reuse generation in the high 32. Show it split rather than as one opaque
+	// 12-digit number.
+	imgui.Text(fmt.Sprintf("%d v%d", uint32(selectedObject.Id), uint32(selectedObject.Id>>32)))
 
 	imgui.TableNextColumn()
 	imgui.Text("Name")
