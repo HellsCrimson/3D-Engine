@@ -12,6 +12,7 @@ import (
 	"3d-engine/engine"
 
 	"github.com/AllenDang/cimgui-go/imgui"
+	"github.com/go-gl/mathgl/mgl32"
 )
 
 // Editor implements engine.Overlay.
@@ -28,7 +29,18 @@ type Editor struct {
 	// draft holds the values the drag widgets write to. They are applied to the
 	// entity, not read from it, while a drag is in progress — otherwise the
 	// widget would fight the physics step for the same field.
-	draft   engine.Transform
+	draft engine.Transform
+
+	// draftRotation is the rotation the widgets actually edit, in the axis-angle
+	// form a person can reason about. The transform stores a quaternion, which
+	// has no component anyone would want to drag directly, so the inspector
+	// converts on read and on apply.
+	draftRotation mgl32.Vec4
+
+	// draftColor is what the colour picker writes to. ImGui's ColorEdit3 wants a
+	// [3]float32, not an mgl32.Vec3.
+	draftColor [3]float32
+
 	editing bool
 
 	sceneModes    []string

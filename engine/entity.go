@@ -6,9 +6,21 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
+// DefaultBaseColor is the tint used for geometry with no diffuse texture. A
+// neutral light grey, so an untextured mesh reads as a lit surface rather than
+// as something wrong.
+var DefaultBaseColor = mgl32.Vec3{0.8, 0.8, 0.8}
+
 // MeshRenderer draws a shared model asset at its entity's world transform.
 type MeshRenderer struct {
 	Model *object.Model
+
+	// BaseColor stands in for the diffuse texture on meshes that have none.
+	//
+	// It lives on the renderer rather than on the model because a model is a
+	// shared asset: two entities can draw the same mesh in different colours,
+	// and tinting the asset would tint every user of it.
+	BaseColor mgl32.Vec3
 }
 
 // RigidBody makes an entity participate in the fixed-step physics pass. Static
@@ -101,7 +113,7 @@ func (e *Entity) SetTransform(t Transform) {
 }
 
 func (e *Entity) Position() mgl32.Vec3 { return e.local.Position }
-func (e *Entity) Rotation() mgl32.Vec4 { return e.local.Rotation }
+func (e *Entity) Rotation() mgl32.Quat { return e.local.Rotation }
 func (e *Entity) Scale() mgl32.Vec3    { return e.local.Scale }
 
 func (e *Entity) SetPosition(p mgl32.Vec3) {
@@ -109,9 +121,30 @@ func (e *Entity) SetPosition(p mgl32.Vec3) {
 	e.invalidate()
 }
 
-func (e *Entity) SetRotation(r mgl32.Vec4) {
+func (e *Entity) SetRotation(r mgl32.Quat) {
 	e.local.Rotation = r
 	e.invalidate()
+}
+
+// RotationAxisAngle reports the rotation as XYZ axis plus degrees, the form the
+// scene files, the gRPC surface and the inspector use.
+func (e *Entity) RotationAxisAngle() mgl32.Vec4 {
+	return AxisAngleFromQuat(e.local.Rotation)
+}
+
+// SetRotationAxisAngle sets the rotation from XYZ axis plus degrees.
+func (e *Entity) SetRotationAxisAngle(axisAngle mgl32.Vec4) {
+	e.SetRotation(QuatFromAxisAngle(axisAngle))
+}
+
+// Rotate composes a rotation onto the entity's current one.
+//
+// This is what the quaternion representation buys: with axis-angle there was no
+// way to combine two rotations without going out to a matrix and being unable to
+// get back, so anything that turned an entity had to overwrite whatever rotation
+// was already there.
+func (e *Entity) Rotate(delta mgl32.Quat) {
+	e.SetRotation(delta.Mul(e.local.Rotation).Normalize())
 }
 
 func (e *Entity) SetScale(s mgl32.Vec3) {

@@ -9,7 +9,6 @@ import (
 	"3d-engine/input"
 	"3d-engine/object"
 	"3d-engine/shaders"
-	"3d-engine/textures"
 	"3d-engine/utils"
 	"fmt"
 	"math"
@@ -311,11 +310,9 @@ func (a *App) initResources() error {
 	}
 	a.debugRenderer = newDebugBoxRenderer()
 
-	transparent := false
-	a.lightingShader.NoTexture, err = textures.Load("./textures/missing.png", &transparent)
-	if err != nil {
-		return fmt.Errorf("could not load missing texture: %w", err)
-	}
+	// The magenta missing-texture image used to be loaded here and bound by every
+	// mesh draw. Untextured meshes are lit through material.base_color now, so
+	// nothing samples it.
 
 	a.skybox = object.CreateSkybox(a.opts.SkyboxPath)
 	a.skybox.LoadCubemap()
@@ -458,6 +455,11 @@ type renderItem struct {
 	mesh     *object.Mesh
 	modelMat mgl32.Mat4
 	distance float32
+
+	// baseColor travels with the item rather than being read back off the
+	// entity, because transparent items are sorted before they are drawn and no
+	// longer arrive in entity order.
+	baseColor mgl32.Vec3
 }
 
 func (a *App) render() {
@@ -488,6 +490,7 @@ func (a *App) render() {
 			}
 			model := entity.Renderer.Model
 			modelMat := entity.WorldMatrix()
+			baseColor := entity.Renderer.BaseColor
 
 			if a.State.CollisionDebug {
 				a.appendDebugBox(&debugBoxes, entity.WorldAABB(), mgl32.Vec3{1.0, 0.2, 0.2})
@@ -502,15 +505,17 @@ func (a *App) render() {
 				if mesh.IsTransparent() {
 					dist := a.Camera.CameraPos.Sub(mesh.WorldCenter(modelMat)).LenSqr()
 					transparentItems = append(transparentItems, renderItem{
-						mesh:     mesh,
-						modelMat: modelMat,
-						distance: dist,
+						mesh:      mesh,
+						modelMat:  modelMat,
+						distance:  dist,
+						baseColor: baseColor,
 					})
 					continue
 				}
 				opaqueItems = append(opaqueItems, renderItem{
-					mesh:     mesh,
-					modelMat: modelMat,
+					mesh:      mesh,
+					modelMat:  modelMat,
+					baseColor: baseColor,
 				})
 			}
 		}
@@ -533,6 +538,7 @@ func (a *App) render() {
 
 	for _, item := range opaqueItems {
 		shader.SetMat4("model", item.modelMat)
+		shader.SetVec3Val("material.base_color", item.baseColor)
 		item.mesh.DrawPass(shader, false)
 	}
 
@@ -541,6 +547,7 @@ func (a *App) render() {
 	})
 	for _, item := range transparentItems {
 		shader.SetMat4("model", item.modelMat)
+		shader.SetVec3Val("material.base_color", item.baseColor)
 		item.mesh.DrawPass(shader, true)
 	}
 

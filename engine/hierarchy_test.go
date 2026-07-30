@@ -61,18 +61,11 @@ func TestSceneHierarchyRoundTrip(t *testing.T) {
 		t.Fatalf("second save: %v", err)
 	}
 
+	assertScenesMatch(t, first, second)
+
 	firstContent, err := os.ReadFile(first)
 	if err != nil {
 		t.Fatalf("reading first save: %v", err)
-	}
-	secondContent, err := os.ReadFile(second)
-	if err != nil {
-		t.Fatalf("reading second save: %v", err)
-	}
-
-	if string(firstContent) != string(secondContent) {
-		t.Fatalf("hierarchy round trip lost information.\nfirst:\n%s\nsecond:\n%s",
-			firstContent, secondContent)
 	}
 
 	// The saved file has to be nested, not flattened — otherwise the round trip

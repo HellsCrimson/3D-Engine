@@ -42,11 +42,13 @@ func TestSpinnerAccumulatesAngle(t *testing.T) {
 		t.Errorf("angle after one second at 90 deg/s: got %v, want 90", spinner.Angle)
 	}
 
-	rotation := entity.Rotation()
+	// Read back through the axis-angle view: the transform stores a quaternion,
+	// and this is what a scene file or the inspector would see.
+	rotation := entity.RotationAxisAngle()
 	if !closeEnough(rotation.W(), 90) {
 		t.Errorf("transform angle: got %v, want 90", rotation.W())
 	}
-	if rotation.Vec3() != (mgl32.Vec3{0, 1, 0}) {
+	if !vecCloseEnough(rotation.Vec3(), mgl32.Vec3{0, 1, 0}) {
 		t.Errorf("spinner should write its own axis, got %v", rotation.Vec3())
 	}
 }
@@ -86,7 +88,7 @@ func TestSpinnerReverses(t *testing.T) {
 // begins.
 func TestSpinnerStartSeedsFromTransform(t *testing.T) {
 	entity := engine.NewEntity("subject")
-	entity.SetRotation(mgl32.Vec4{0, 1, 0, 45})
+	entity.SetRotationAxisAngle(mgl32.Vec4{0, 1, 0, 45})
 
 	spinner := NewSpinner()
 	spinner.Start(&engine.Context{Entity: entity})
@@ -113,13 +115,13 @@ func TestSpinnerSurvivesZeroAxis(t *testing.T) {
 
 	step(spinner, entity, 0.5)
 
-	rotation := entity.Rotation()
+	rotation := entity.RotationAxisAngle()
 	for i := 0; i < 4; i++ {
 		if math.IsNaN(float64(rotation[i])) {
 			t.Fatalf("zero axis produced a NaN rotation: %v", rotation)
 		}
 	}
-	if rotation.Vec3() != (mgl32.Vec3{0, 1, 0}) {
+	if !vecCloseEnough(rotation.Vec3(), mgl32.Vec3{0, 1, 0}) {
 		t.Errorf("zero axis should fall back to Y, got %v", rotation.Vec3())
 	}
 }

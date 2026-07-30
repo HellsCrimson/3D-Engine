@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"3d-engine/scene"
 
 	"github.com/go-gl/mathgl/mgl32"
+	"gopkg.in/yaml.v3"
 )
 
 // The scene used here deliberately has no models. Importing one needs a GL
@@ -27,7 +29,9 @@ objects:
   - name: sun
     transform:
       position: [0.0, 10.0, 0.0]
-      rotation: [1.0, 0.0, 0.0, 45.0]
+      # A tilted axis and a half turn on purpose: both are cases where the
+      # quaternion conversion is least well behaved.
+      rotation: [1.0, 1.0, 1.0, 120.0]
       scale: [1.0, 1.0, 1.0]
     components:
       - type: DirectionalLight
@@ -51,6 +55,8 @@ objects:
           quadratic: 0.07
 
   - name: torch
+    transform:
+      rotation: [0.0, 0.0, 1.0, 180.0]
     body:
       static: false
     components:
@@ -97,12 +103,130 @@ func loadAndPlace(t *testing.T, a *App, path string) {
 	a.resetDynamicState()
 }
 
+// assertScenesMatch compares two saved scenes as scenes rather than as text.
+//
+// Byte comparison would be stronger and was what this used to do, but it asserts
+// more than the format promises. A rotation goes out to a quaternion and back
+// through trigonometry that rounds at every step, so the last digit of an angle
+// can move between one save and the next without the rotation changing at all.
+// Structure, names, ordering, models, bodies and component props are still held
+// to the letter; only the floats get a tolerance.
+func assertScenesMatch(t *testing.T, firstPath, secondPath string) {
+	t.Helper()
+
+	first, err := scene.Load(firstPath)
+	if err != nil {
+		t.Fatalf("reloading %s: %v", firstPath, err)
+	}
+	second, err := scene.Load(secondPath)
+	if err != nil {
+		t.Fatalf("reloading %s: %v", secondPath, err)
+	}
+
+	if first.Skybox != second.Skybox {
+		t.Errorf("skybox: %q then %q", first.Skybox, second.Skybox)
+	}
+
+	firstCamera, secondCamera := first.ResolveCamera(), second.ResolveCamera()
+	if !floatsMatch(firstCamera.Position[:], secondCamera.Position[:]) ||
+		!floatMatches(firstCamera.Yaw, secondCamera.Yaw) ||
+		!floatMatches(firstCamera.Pitch, secondCamera.Pitch) {
+		t.Errorf("camera: %+v then %+v", firstCamera, secondCamera)
+	}
+
+	assertObjectsMatch(t, "", first.Objects, second.Objects)
+}
+
+func assertObjectsMatch(t *testing.T, path string, first, second []scene.Object) {
+	t.Helper()
+
+	if len(first) != len(second) {
+		t.Fatalf("%s: %d objects then %d", path, len(first), len(second))
+	}
+
+	for i := range first {
+		a, b := &first[i], &second[i]
+		where := path + "/" + a.Name
+
+		if a.Name != b.Name {
+			t.Errorf("%s: name %q then %q", where, a.Name, b.Name)
+		}
+		if a.Model != b.Model {
+			t.Errorf("%s: model %q then %q", where, a.Model, b.Model)
+		}
+		if (a.Body == nil) != (b.Body == nil) || (a.Body != nil && a.Body.Static != b.Body.Static) {
+			t.Errorf("%s: body %+v then %+v", where, a.Body, b.Body)
+		}
+
+		firstTransform, secondTransform := a.ResolveTransform(), b.ResolveTransform()
+		if !floatsMatch(firstTransform.Position[:], secondTransform.Position[:]) {
+			t.Errorf("%s: position %v then %v", where, firstTransform.Position, secondTransform.Position)
+		}
+		if !floatsMatch(firstTransform.Scale[:], secondTransform.Scale[:]) {
+			t.Errorf("%s: scale %v then %v", where, firstTransform.Scale, secondTransform.Scale)
+		}
+		// The rotation is compared as a rotation, not as an axis-angle pair:
+		// several pairs name the same one.
+		if !rotationsMatch(firstTransform.Rotation, secondTransform.Rotation) {
+			t.Errorf("%s: rotation %v then %v", where, firstTransform.Rotation, secondTransform.Rotation)
+		}
+
+		if len(a.Components) != len(b.Components) {
+			t.Fatalf("%s: %d components then %d", where, len(a.Components), len(b.Components))
+		}
+		for j := range a.Components {
+			if a.Components[j].Type != b.Components[j].Type {
+				t.Errorf("%s: component %d is %q then %q", where, j,
+					a.Components[j].Type, b.Components[j].Type)
+			}
+			// Props never pass through the rotation conversion, so they are held
+			// to the byte.
+			firstProps, _ := yaml.Marshal(&a.Components[j].Props)
+			secondProps, _ := yaml.Marshal(&b.Components[j].Props)
+			if string(firstProps) != string(secondProps) {
+				t.Errorf("%s: component %q props\n%s\nthen\n%s", where,
+					a.Components[j].Type, firstProps, secondProps)
+			}
+		}
+
+		assertObjectsMatch(t, where, a.Children, b.Children)
+	}
+}
+
+func floatMatches(a, b float32) bool {
+	return math.Abs(float64(a-b)) <= 1e-3
+}
+
+func floatsMatch(a, b []float32) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !floatMatches(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// rotationsMatch compares two axis-angle pairs by what they do to a set of
+// vectors, so [0, 1, 0, -45] and [0, -1, 0, 45] count as equal.
+func rotationsMatch(a, b [4]float32) bool {
+	first := QuatFromAxisAngle(mgl32.Vec4(a))
+	second := QuatFromAxisAngle(mgl32.Vec4(b))
+
+	for _, probe := range []mgl32.Vec3{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}} {
+		turnedByFirst := first.Rotate(probe)
+		turnedBySecond := second.Rotate(probe)
+		if !floatsMatch(turnedByFirst[:], turnedBySecond[:]) {
+			return false
+		}
+	}
+	return true
+}
+
 // TestSceneRoundTripIsLossless is the guarantee the editor's Save button rests
 // on: load a scene, save it, load it back, and the world is the same one.
-//
-// The comparison is between the two saved files rather than between two
-// in-memory structs, because that is the artefact the user keeps, and it catches
-// anything the encoder drops as well as anything the snapshot does.
 func TestSceneRoundTripIsLossless(t *testing.T) {
 	directory := t.TempDir()
 	original := filepath.Join(directory, "original.yml")
@@ -127,18 +251,7 @@ func TestSceneRoundTripIsLossless(t *testing.T) {
 		t.Fatalf("second save: %v", err)
 	}
 
-	first, err := os.ReadFile(firstSave)
-	if err != nil {
-		t.Fatalf("reading first save: %v", err)
-	}
-	second, err := os.ReadFile(secondSave)
-	if err != nil {
-		t.Fatalf("reading second save: %v", err)
-	}
-
-	if string(first) != string(second) {
-		t.Fatalf("round trip lost information.\nfirst save:\n%s\nsecond save:\n%s", first, second)
-	}
+	assertScenesMatch(t, firstSave, secondSave)
 }
 
 // TestSceneRoundTripPreservesWorld checks the world itself, not just that two
@@ -179,8 +292,9 @@ func TestSceneRoundTripPreservesWorld(t *testing.T) {
 		t.Errorf("lamp position: got %v, want {2 3 4}", lamp.Transform().Position)
 	}
 	// The fixture omits rotation, so the loader's default has to survive too.
-	if lamp.Transform().Rotation != (mgl32.Vec4{0, 1, 0, 0}) {
-		t.Errorf("lamp rotation: got %v, want the default {0 1 0 0}", lamp.Transform().Rotation)
+	// Checked through the axis-angle view, which is the form the scene file uses.
+	if got := lamp.RotationAxisAngle(); got != (mgl32.Vec4{0, 1, 0, 0}) {
+		t.Errorf("lamp rotation: got %v, want the default {0 1 0 0}", got)
 	}
 	if lamp.Transform().Scale != (mgl32.Vec3{0.5, 0.5, 0.5}) {
 		t.Errorf("lamp scale: got %v, want {0.5 0.5 0.5}", lamp.Transform().Scale)

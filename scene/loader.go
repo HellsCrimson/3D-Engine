@@ -90,6 +90,28 @@ type BodySpec struct {
 	Static bool `yaml:"static"`
 }
 
+// MaterialSpec overrides how an object's untextured geometry is shaded.
+//
+// Only Color so far. It applies to the parts of a model that carry no diffuse
+// texture; a fully textured model is unaffected by it.
+type MaterialSpec struct {
+	Color [3]float32 `yaml:"color"`
+}
+
+func (m *MaterialSpec) UnmarshalYAML(node *yaml.Node) error {
+	type materialSpec MaterialSpec
+
+	// White rather than black, so `material: {}` is a no-op rather than an
+	// object that vanishes into shadow.
+	decoded := materialSpec{Color: [3]float32{1, 1, 1}}
+	if err := node.Decode(&decoded); err != nil {
+		return err
+	}
+
+	*m = MaterialSpec(decoded)
+	return nil
+}
+
 // ComponentSpec names a registered component type and carries its properties
 // verbatim. Props stays an undecoded node because only the engine's component
 // registry knows what Go type to decode it into.
@@ -117,6 +139,7 @@ type Object struct {
 	Model      string          `yaml:"model,omitempty"`
 	Transform  *TransformSpec  `yaml:"transform,omitempty"`
 	Body       *BodySpec       `yaml:"body,omitempty"`
+	Material   *MaterialSpec   `yaml:"material,omitempty"`
 	Components []ComponentSpec `yaml:"components,omitempty"`
 
 	// Children nest to any depth. A child's transform is relative to its

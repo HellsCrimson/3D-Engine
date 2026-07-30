@@ -5,6 +5,8 @@ import (
 
 	"3d-engine/object"
 	"3d-engine/utils"
+
+	"github.com/go-gl/mathgl/mgl32"
 )
 
 // This file is the engine's object API: the one place an entity is built,
@@ -20,6 +22,11 @@ type ObjectSpec struct {
 	// Model is the asset path. Empty means no renderer — a light or a pure
 	// logic node.
 	Model string
+
+	// BaseColor tints the parts of the model that carry no diffuse texture. Nil
+	// keeps DefaultBaseColor, which is what lets an omitted material block mean
+	// "the usual grey" rather than black.
+	BaseColor *mgl32.Vec3
 
 	Transform Transform
 
@@ -48,6 +55,10 @@ type ObjectInfo struct {
 	Model     string
 	Transform Transform
 
+	// BaseColor is the renderer's tint for untextured geometry. It is the zero
+	// vector for an entity with no renderer.
+	BaseColor mgl32.Vec3
+
 	// Parent is NoHandle for an entity at the root of the scene.
 	Parent Handle
 
@@ -71,7 +82,12 @@ func (a *App) BuildObject(spec ObjectSpec) (*Entity, error) {
 		if err != nil {
 			return nil, fmt.Errorf("could not load model %q: %w", spec.Model, err)
 		}
-		entity.Renderer = &MeshRenderer{Model: model}
+
+		renderer := &MeshRenderer{Model: model, BaseColor: DefaultBaseColor}
+		if spec.BaseColor != nil {
+			renderer.BaseColor = *spec.BaseColor
+		}
+		entity.Renderer = renderer
 	}
 
 	if spec.Body != nil {
@@ -277,6 +293,29 @@ func (a *App) UpdateTransform(handle Handle, fn func(t *Transform)) error {
 	return nil
 }
 
+// SetBaseColor changes the tint used where an entity's model has no diffuse
+// texture. Safe from any goroutine: it writes a field the render loop reads, and
+// touches no GL.
+func (a *App) SetBaseColor(handle Handle, color mgl32.Vec3) error {
+	var hasRenderer bool
+
+	found := a.World.Mutate(handle, func(entity *Entity) {
+		if entity.Renderer == nil {
+			return
+		}
+		entity.Renderer.BaseColor = color
+		hasRenderer = true
+	})
+
+	if !found {
+		return fmt.Errorf("object %s not found", handle)
+	}
+	if !hasRenderer {
+		return fmt.Errorf("object %s has no model to colour", handle)
+	}
+	return nil
+}
+
 // ObjectInfo snapshots one entity.
 func (a *App) ObjectInfo(handle Handle) (ObjectInfo, bool) {
 	var info ObjectInfo
@@ -310,8 +349,11 @@ func describe(entity *Entity) ObjectInfo {
 		Name:      entity.Name,
 		Transform: entity.Transform(),
 	}
-	if entity.Renderer != nil && entity.Renderer.Model != nil {
-		info.Model = entity.Renderer.Model.Path
+	if entity.Renderer != nil {
+		info.BaseColor = entity.Renderer.BaseColor
+		if entity.Renderer.Model != nil {
+			info.Model = entity.Renderer.Model.Path
+		}
 	}
 	if parent := entity.Parent(); parent != nil {
 		info.Parent = parent.Handle()

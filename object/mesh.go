@@ -161,6 +161,11 @@ func (m *Mesh) DrawPass(shader *shaders.Shader, drawTransparent bool) {
 	shader.SetBool("material.has_emission", false)
 	shader.SetBool("material.has_reflection", false)
 
+	// Outside the texture loop: a mesh with no textures at all never entered it,
+	// and so used to inherit whatever shininess the previously drawn mesh left
+	// behind.
+	shader.SetFloat("material.shininess", 32)
+
 	i := int32(0)
 	for ; i < int32(len(m.Textures)); i++ {
 		gl.ActiveTexture(gl.TEXTURE0 + uint32(i))
@@ -182,13 +187,12 @@ func (m *Mesh) DrawPass(shader *shaders.Shader, drawTransparent bool) {
 		}
 
 		shader.SetInt("material."+name, i)
-		shader.SetFloat("material.shininess", 32)
 		gl.BindTexture(gl.TEXTURE_2D, m.Textures[i].Id)
 	}
 
-	gl.ActiveTexture(gl.TEXTURE0 + uint32(i))
-	shader.SetInt("material.missing_texture", i)
-	gl.BindTexture(gl.TEXTURE_2D, shader.NoTexture)
+	// The magenta stand-in that used to be bound here is gone: a mesh with no
+	// diffuse texture is now lit like anything else, using material.base_color,
+	// which the render loop sets per entity.
 
 	if drawTransparent {
 		gl.Enable(gl.BLEND)

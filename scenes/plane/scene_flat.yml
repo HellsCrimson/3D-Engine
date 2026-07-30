@@ -13,6 +13,10 @@ objects:
       scale: [1.0, 1.0, 1.0]
     body:
       static: true
+    # plane.obj carries no diffuse texture. It used to render as flat magenta;
+    # now it takes this colour and is lit like anything else.
+    material:
+      color: [0.45, 0.5, 0.4]
 
   # A second instance of the same model, spun by a game component. Sharing
   # plane.obj with the ground below also puts the asset cache's refcount to work:
@@ -27,6 +31,8 @@ objects:
       position: [0.0, 3.0, 0.0]
       rotation: [0.0, 1.0, 0.0, 0.0]
       scale: [0.04, 0.5, 0.04]
+    material:
+      color: [0.85, 0.35, 0.2]
     components:
       - type: Spinner
         props:
@@ -46,6 +52,8 @@ objects:
         transform:
           position: [15.0, 2.0, 0.0]
           scale: [0.1, 4.0, 0.1]
+        material:
+          color: [0.2, 0.45, 0.8]
 
   # Lights are scene data now; these used to be hardcoded in computeLight.
   - name: sun

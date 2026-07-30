@@ -99,7 +99,10 @@ func (a *App) describeForSave(entity *Entity) (scene.Object, error) {
 		Name: entity.Name,
 		Transform: &scene.TransformSpec{
 			Position: [3]float32(transform.Position),
-			Rotation: [4]float32(transform.Rotation),
+			// Back to axis-angle for the file. The pair written is not
+			// necessarily the one the scene was authored with — it is the
+			// canonical one naming the same rotation.
+			Rotation: [4]float32(AxisAngleFromQuat(transform.Rotation)),
 			Scale:    [3]float32(transform.Scale),
 		},
 	}
@@ -108,6 +111,15 @@ func (a *App) describeForSave(entity *Entity) (scene.Object, error) {
 	// so a scene written with relative paths stays relative.
 	if entity.Renderer != nil && entity.Renderer.Model != nil {
 		row.Model = entity.Renderer.Model.Path
+
+		// Only when it has been changed. Writing the default onto every object
+		// would add a material block to every existing scene the first time it
+		// was saved, for no change in meaning.
+		if entity.Renderer.BaseColor != DefaultBaseColor {
+			row.Material = &scene.MaterialSpec{
+				Color: [3]float32(entity.Renderer.BaseColor),
+			}
+		}
 	}
 
 	if entity.Body != nil {

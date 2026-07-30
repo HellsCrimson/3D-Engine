@@ -57,38 +57,53 @@ func (b AABB) Intersects(other AABB) bool {
 		b.Min.Z() <= other.Max.Z() && b.Max.Z() >= other.Min.Z()
 }
 
-// Separation returns the smallest translation that pushes b out of other, along
-// whichever single axis overlaps least. It is the zero vector when the boxes do
-// not overlap.
+// Separation returns the smallest translation that pushes b clear of other,
+// along a single axis. It is the zero vector when the boxes do not overlap.
+//
+// Each axis offers two ways out, and the distance is measured to the face being
+// left rather than from the width of the overlap:
+//
+//	toNegative = b.Max - other.Min   // far enough to put b's max on other's min
+//	toPositive = other.Max - b.Min   // far enough to put b's min on other's max
+//
+// Taking the width of the intersection instead — min of the maxima less max of
+// the minima — is right only while the boxes straddle each other. Once one is
+// wholly inside the other on an axis, that width is the inner box's own extent,
+// which is generally too small to reach either face, and a deeply embedded body
+// creeps out over many steps instead of popping out in one.
+//
+// The two agree wherever the old formula was correct, so this changes behaviour
+// only for the containment case it was getting wrong.
 func (b AABB) Separation(other AABB) mgl32.Vec3 {
-	overlapX := minf(b.Max.X(), other.Max.X()) - maxf(b.Min.X(), other.Min.X())
-	overlapY := minf(b.Max.Y(), other.Max.Y()) - maxf(b.Min.Y(), other.Min.Y())
-	overlapZ := minf(b.Max.Z(), other.Max.Z()) - maxf(b.Min.Z(), other.Min.Z())
-	if overlapX <= 0 || overlapY <= 0 || overlapZ <= 0 {
-		return mgl32.Vec3{0, 0, 0}
-	}
+	var best mgl32.Vec3
+	var bestDistance float32
 
-	center := b.Center()
-	otherCenter := other.Center()
+	for axis := 0; axis < 3; axis++ {
+		toNegative := b.Max[axis] - other.Min[axis]
+		toPositive := other.Max[axis] - b.Min[axis]
 
-	if overlapX <= overlapY && overlapX <= overlapZ {
-		if center.X() < otherCenter.X() {
-			return mgl32.Vec3{-overlapX, 0, 0}
+		// Both positive is exactly the condition for overlapping on this axis,
+		// so one non-positive means the boxes are apart and there is nothing to
+		// resolve.
+		if toNegative <= 0 || toPositive <= 0 {
+			return mgl32.Vec3{0, 0, 0}
 		}
-		return mgl32.Vec3{overlapX, 0, 0}
-	}
 
-	if overlapY <= overlapX && overlapY <= overlapZ {
-		if center.Y() < otherCenter.Y() {
-			return mgl32.Vec3{0, -overlapY, 0}
+		distance, direction := toNegative, float32(-1)
+		if toPositive < toNegative {
+			distance, direction = toPositive, 1
 		}
-		return mgl32.Vec3{0, overlapY, 0}
+
+		// Strictly less, so the earliest axis wins a tie — the order the old
+		// chain of comparisons resolved them in.
+		if axis == 0 || distance < bestDistance {
+			bestDistance = distance
+			best = mgl32.Vec3{}
+			best[axis] = distance * direction
+		}
 	}
 
-	if center.Z() < otherCenter.Z() {
-		return mgl32.Vec3{0, 0, -overlapZ}
-	}
-	return mgl32.Vec3{0, 0, overlapZ}
+	return best
 }
 
 func minf(a, b float32) float32 {

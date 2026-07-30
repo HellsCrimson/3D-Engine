@@ -163,6 +163,11 @@ func (eg *engineServer) getObjects() *egrpc.Objects {
 
 // toProtoObject is the only place engine types become wire types.
 func toProtoObject(info ObjectInfo) *egrpc.Object {
+	// The wire still speaks axis-angle, so the quaternion is converted back here
+	// rather than the proto growing a fourth rotation component with a different
+	// meaning. Existing clients see exactly what they saw before.
+	rotation := AxisAngleFromQuat(info.Transform.Rotation)
+
 	return &egrpc.Object{
 		Id:    info.Handle.Encode(),
 		Name:  info.Name,
@@ -174,10 +179,10 @@ func toProtoObject(info ObjectInfo) *egrpc.Object {
 				Z: info.Transform.Position.Z(),
 			},
 			Rotation: &egrpc.Vector4{
-				X: info.Transform.Rotation.X(),
-				Y: info.Transform.Rotation.Y(),
-				Z: info.Transform.Rotation.Z(),
-				W: info.Transform.Rotation.W(),
+				X: rotation.X(),
+				Y: rotation.Y(),
+				Z: rotation.Z(),
+				W: rotation.W(),
 			},
 			Scale: &egrpc.Vector3{
 				X: info.Transform.Scale.X(),
@@ -237,7 +242,7 @@ func transformFromProto(location *egrpc.Location, fallback Transform) Transform 
 		transform.Position = toVec3(location.Position)
 	}
 	if location.Rotation != nil {
-		transform.Rotation = toVec4(location.Rotation)
+		transform.Rotation = QuatFromAxisAngle(toVec4(location.Rotation))
 	}
 	if location.Scale != nil {
 		transform.Scale = toVec3(location.Scale)
@@ -261,7 +266,7 @@ func (eg *engineServer) rotateObject(obj *egrpc.Object) error {
 	}
 
 	return eg.update(obj.Id, func(t *Transform) {
-		t.Rotation = toVec4(obj.Location.Rotation)
+		t.Rotation = QuatFromAxisAngle(toVec4(obj.Location.Rotation))
 	})
 }
 

@@ -17,8 +17,8 @@ import (
 //	type Spinner struct{ Speed float32 }
 //
 //	func (s *Spinner) Update(ctx *engine.Context) {
-//	    r := ctx.Entity.Rotation()
-//	    ctx.Entity.SetRotation(mgl32.Vec4{0, 1, 0, r.W() + s.Speed*ctx.DeltaTime})
+//	    step := mgl32.QuatRotate(mgl32.DegToRad(s.Speed*ctx.DeltaTime), mgl32.Vec3{0, 1, 0})
+//	    ctx.Entity.Rotate(step)
 //	}
 type Component interface{}
 

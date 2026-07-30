@@ -56,13 +56,21 @@ func randomBox(rng *rand.Rand) AABB {
 	return AABB{Min: origin, Max: origin.Add(size)}
 }
 
-func TestSeparationMatchesLegacy(t *testing.T) {
+// TestSeparationMatchesLegacyWhereLegacyWasRight keeps the consolidation pinned
+// everywhere the original algorithm was correct, which is every pair where
+// neither box is swallowed by the other on any axis. Containment is the one case
+// the two deliberately disagree on, and
+// TestSeparationClearsAContainedBox covers that side.
+func TestSeparationMatchesLegacyWhereLegacyWasRight(t *testing.T) {
 	rng := rand.New(rand.NewSource(1))
 
-	overlapping := 0
+	compared := 0
 	for i := 0; i < 20000; i++ {
 		a := randomBox(rng)
 		b := randomBox(rng)
+		if containedOnSomeAxis(a, b) {
+			continue
+		}
 
 		got := a.Separation(b)
 		want := legacySeparation(a.Min, a.Max, b.Min, b.Max)
@@ -70,14 +78,69 @@ func TestSeparationMatchesLegacy(t *testing.T) {
 			t.Fatalf("case %d: a=%v b=%v: got %v, legacy %v", i, a, b, got, want)
 		}
 		if got != (mgl32.Vec3{}) {
-			overlapping++
+			compared++
 		}
 	}
 
-	if overlapping == 0 {
+	if compared == 0 {
 		t.Fatal("no overlapping pairs generated, the comparison proved nothing")
 	}
-	t.Logf("%d of 20000 pairs overlapped", overlapping)
+	t.Logf("%d of 20000 pairs overlapped and agreed with the original", compared)
+}
+
+// TestSeparationBeatsLegacyOnContainment is the other half: where the two
+// disagree, the new one has to be the one that actually resolves the overlap.
+// Without this the test above could be satisfied by any change that merely avoids
+// the containment cases.
+func TestSeparationBeatsLegacyOnContainment(t *testing.T) {
+	rng := rand.New(rand.NewSource(7))
+
+	disagreements := 0
+	for i := 0; i < 40000; i++ {
+		a := randomBox(rng)
+		b := randomBox(rng)
+		if !a.Intersects(b) || !containedOnSomeAxis(a, b) {
+			continue
+		}
+
+		got := a.Separation(b)
+		legacy := legacySeparation(a.Min, a.Max, b.Min, b.Max)
+		if got == legacy {
+			continue
+		}
+		disagreements++
+
+		// The old answer left them touching or overlapping; the new one must not.
+		movedByLegacy := AABB{Min: a.Min.Add(legacy), Max: a.Max.Add(legacy)}
+		moved := AABB{Min: a.Min.Add(got), Max: a.Max.Add(got)}
+
+		if stillPenetrating(moved, b) {
+			t.Fatalf("case %d: still penetrating after %v: a=%v b=%v", i, got, a, b)
+		}
+		if !stillPenetrating(movedByLegacy, b) {
+			t.Fatalf("case %d: the original answer %v was fine, so this pair does not "+
+				"belong in this test: a=%v b=%v", i, legacy, a, b)
+		}
+	}
+
+	if disagreements == 0 {
+		t.Fatal("no containment disagreements generated, the assertion proved nothing")
+	}
+	t.Logf("%d containment cases the original algorithm under-separated", disagreements)
+}
+
+// stillPenetrating reports whether two boxes overlap by more than rounding on
+// every axis. Touching exactly at a face is not penetration.
+func stillPenetrating(a, b AABB) bool {
+	const epsilon = 1e-4
+
+	for axis := 0; axis < 3; axis++ {
+		overlap := minf(a.Max[axis], b.Max[axis]) - maxf(a.Min[axis], b.Min[axis])
+		if overlap <= epsilon {
+			return false
+		}
+	}
+	return true
 }
 
 // containedOnSomeAxis reports whether either box's extent sits entirely inside
@@ -95,16 +158,18 @@ func containedOnSomeAxis(a, b AABB) bool {
 
 // TestSeparationResolvesOverlap checks the contract the physics loop relies on:
 // applying the separation to the moving box leaves the two no longer
-// penetrating. Boxes where one is contained in the other on some axis are
-// excluded — see TestSeparationUnderSeparatesWhenContained.
+// penetrating.
+//
+// Contained boxes used to be excluded here because the algorithm could not
+// handle them. They are included now, which is the whole point of the fix.
 func TestSeparationResolvesOverlap(t *testing.T) {
 	rng := rand.New(rand.NewSource(2))
 
-	checked := 0
+	checked, contained := 0, 0
 	for i := 0; i < 20000; i++ {
 		a := randomBox(rng)
 		b := randomBox(rng)
-		if !a.Intersects(b) || containedOnSomeAxis(a, b) {
+		if !a.Intersects(b) {
 			continue
 		}
 
@@ -115,14 +180,12 @@ func TestSeparationResolvesOverlap(t *testing.T) {
 			continue
 		}
 		checked++
+		if containedOnSomeAxis(a, b) {
+			contained++
+		}
 
 		moved := AABB{Min: a.Min.Add(separation), Max: a.Max.Add(separation)}
-		overlapX := minf(moved.Max.X(), b.Max.X()) - maxf(moved.Min.X(), b.Min.X())
-		overlapY := minf(moved.Max.Y(), b.Max.Y()) - maxf(moved.Min.Y(), b.Min.Y())
-		overlapZ := minf(moved.Max.Z(), b.Max.Z()) - maxf(moved.Min.Z(), b.Min.Z())
-
-		const epsilon = 1e-4
-		if overlapX > epsilon && overlapY > epsilon && overlapZ > epsilon {
+		if stillPenetrating(moved, b) {
 			t.Fatalf("case %d: still penetrating after separation %v: a=%v b=%v", i, separation, a, b)
 		}
 	}
@@ -130,21 +193,20 @@ func TestSeparationResolvesOverlap(t *testing.T) {
 	if checked == 0 {
 		t.Fatal("no cases exercised, the assertion proved nothing")
 	}
-	t.Logf("%d separations resolved cleanly", checked)
+	if contained == 0 {
+		t.Fatal("no contained pairs exercised, so the case this fix was for went untested")
+	}
+	t.Logf("%d separations resolved cleanly, %d of them contained on some axis", checked, contained)
 }
 
-// TestSeparationUnderSeparatesWhenContained documents a limitation that predates
-// the AABB consolidation: when one box sits entirely inside the other along the
-// minimum-overlap axis, the overlap formula yields the contained box's whole
-// extent instead of the distance to the nearest face, so a single step does not
-// push far enough to clear the other box. The physics loop hides this by
-// re-running every fixed step, but a deeply embedded body creeps out rather than
-// popping out.
+// TestSeparationClearsAContainedBox is the fixture that used to pin the
+// containment bug, now asserting the opposite.
 //
-// This is pinned rather than fixed so that a future change to the separation
-// algorithm is a deliberate decision instead of an accident.
-func TestSeparationUnderSeparatesWhenContained(t *testing.T) {
-	// A's Z extent lies wholly within B's; Z is the minimum-overlap axis.
+// A's Z extent lies wholly within B's. The old algorithm measured the overlap as
+// A's own Z extent, which was not far enough to reach either of B's faces, so a
+// body embedded this deeply crept out over many fixed steps instead of popping
+// out in one. It now moves exactly as far as the nearer face.
+func TestSeparationClearsAContainedBox(t *testing.T) {
 	a := AABB{
 		Min: mgl32.Vec3{0.75190973, -2.0266662, -1.8225768},
 		Max: mgl32.Vec3{1.6058164, 1.3054953, -1.4170029},
@@ -159,17 +221,21 @@ func TestSeparationUnderSeparatesWhenContained(t *testing.T) {
 		t.Fatalf("expected a push along -Z, got %v", separation)
 	}
 
-	// Clearing B along -Z needs b.Min.Z - a.Max.Z; the algorithm gives less.
+	// -Z is the shorter way out here, and clearing B that way needs exactly
+	// b.Min.Z - a.Max.Z.
 	needed := b.Min.Z() - a.Max.Z()
-	if separation.Z() <= needed {
-		t.Fatalf("separation %v already clears the box (needed %v); "+
-			"the containment limitation appears to be fixed, so update this test",
-			separation.Z(), needed)
+	if separation.Z() > needed {
+		t.Fatalf("separation %v does not clear the box, needed %v", separation.Z(), needed)
 	}
 
 	moved := AABB{Min: a.Min.Add(separation), Max: a.Max.Add(separation)}
-	if !moved.Intersects(b) {
-		t.Fatal("expected the boxes to still overlap after one separation step")
+	if stillPenetrating(moved, b) {
+		t.Fatalf("the boxes still overlap after one separation step: %v vs %v", moved, b)
+	}
+
+	// One step, not several: it must not overshoot either.
+	if separation.Z() < needed-1e-4 {
+		t.Errorf("separation %v overshoots; the nearest face is at %v", separation.Z(), needed)
 	}
 }
 

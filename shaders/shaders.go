@@ -14,7 +14,6 @@ var shaderDir embed.FS
 
 type Shader struct {
 	ProgramId uint32
-	NoTexture uint32
 }
 
 func (s *Shader) Use() {

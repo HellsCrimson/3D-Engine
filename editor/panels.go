@@ -6,6 +6,7 @@ import (
 	"3d-engine/engine"
 
 	"github.com/AllenDang/cimgui-go/imgui"
+	"github.com/go-gl/mathgl/mgl32"
 )
 
 func (e *Editor) draw() {
@@ -321,6 +322,35 @@ func (e *Editor) drawEntityNode(row engine.ObjectInfo, byHandle map[engine.Handl
 	imgui.PopID()
 }
 
+// drawMaterial is the base-colour picker.
+//
+// The colour only shows on geometry with no diffuse texture — a fully textured
+// model will not react to it, which is worth knowing before concluding the
+// control is broken. It is shown for every model rather than only untextured
+// ones because a model is a bag of meshes and some of them may be textured while
+// others are not.
+func (e *Editor) drawMaterial(info engine.ObjectInfo) {
+	// Same rule as the transform drags: follow the entity except while the user
+	// is working the widget.
+	if !imgui.IsAnyItemActive() {
+		e.draftColor = [3]float32(info.BaseColor)
+	}
+
+	if imgui.ColorEdit3("Base colour", &e.draftColor) {
+		if err := e.app.SetBaseColor(e.selected, mgl32.Vec3(e.draftColor)); err != nil {
+			e.status = err.Error()
+		}
+	}
+	imgui.SameLine()
+	if imgui.Button("Reset##colour") {
+		e.draftColor = [3]float32(engine.DefaultBaseColor)
+		if err := e.app.SetBaseColor(e.selected, engine.DefaultBaseColor); err != nil {
+			e.status = err.Error()
+		}
+	}
+	imgui.TextDisabled("Applies where the model has no texture")
+}
+
 // drawReparent is the parent picker.
 //
 // Reparenting keeps the entity's local transform, so it jumps to sit at the same
@@ -422,6 +452,7 @@ func (e *Editor) drawInspector(rows []engine.ObjectInfo, byHandle map[engine.Han
 	imgui.Text(fmt.Sprintf("Handle: %d v%d", e.selected.Index, e.selected.Generation))
 	if info.Model != "" {
 		imgui.Text(fmt.Sprintf("Model: %s", info.Model))
+		e.drawMaterial(info)
 	}
 	if len(info.Children) > 0 {
 		imgui.Text(fmt.Sprintf("Children: %d", len(info.Children)))
@@ -434,6 +465,11 @@ func (e *Editor) drawInspector(rows []engine.ObjectInfo, byHandle map[engine.Han
 	// frame.
 	if !imgui.IsAnyItemActive() {
 		e.draft = info.Transform
+		// Converted, not copied: the widgets below edit an axis and an angle,
+		// which is not how the transform stores it. Doing this only while
+		// nothing is being dragged also stops the conversion round trip from
+		// rewriting the axis under the user's cursor mid-drag.
+		e.draftRotation = engine.AxisAngleFromQuat(info.Transform.Rotation)
 	}
 
 	imgui.Checkbox("Auto apply", &e.autoApply)
@@ -452,13 +488,13 @@ func (e *Editor) drawInspector(rows []engine.ObjectInfo, byHandle map[engine.Han
 
 	imgui.Text("Rotation (axis + degrees)")
 	imgui.PushIDStr("rotation")
-	changed = imgui.DragFloatV("X", &e.draft.Rotation[0], 0.01, -1, 1, "%.2f", 0) || changed
+	changed = imgui.DragFloatV("X", &e.draftRotation[0], 0.01, -1, 1, "%.2f", 0) || changed
 	imgui.SameLine()
-	changed = imgui.DragFloatV("Y", &e.draft.Rotation[1], 0.01, -1, 1, "%.2f", 0) || changed
+	changed = imgui.DragFloatV("Y", &e.draftRotation[1], 0.01, -1, 1, "%.2f", 0) || changed
 	imgui.SameLine()
-	changed = imgui.DragFloatV("Z", &e.draft.Rotation[2], 0.01, -1, 1, "%.2f", 0) || changed
+	changed = imgui.DragFloatV("Z", &e.draftRotation[2], 0.01, -1, 1, "%.2f", 0) || changed
 	imgui.SameLine()
-	changed = imgui.DragFloatV("Angle", &e.draft.Rotation[3], 1.0, -360, 360, "%.0f", 0) || changed
+	changed = imgui.DragFloatV("Angle", &e.draftRotation[3], 1.0, -360, 360, "%.0f", 0) || changed
 	imgui.PopID()
 
 	imgui.Text("Scale")
@@ -476,6 +512,7 @@ func (e *Editor) drawInspector(rows []engine.ObjectInfo, byHandle map[engine.Han
 	if (e.autoApply && changed) || apply {
 		// The same call the gRPC handler makes, minus the serialization.
 		draft := e.draft
+		draft.Rotation = engine.QuatFromAxisAngle(e.draftRotation)
 		if err := e.app.UpdateTransform(e.selected, func(t *engine.Transform) {
 			*t = draft
 		}); err != nil {

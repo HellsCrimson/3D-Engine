@@ -14,12 +14,14 @@ import (
 //	  - type: Spinner
 //	    props: { axis: [0, 1, 0], speed: 45 }
 //
-// The spinner owns its entity's rotation outright: it writes the whole
-// axis-angle vector every frame, so an axis set in the transform block is
-// replaced by this one. That is a consequence of rotations being stored as
-// axis-angle — two of them cannot be composed without going through
-// quaternions. Angle is the one part of the transform's rotation that carries
-// over, because the spinner takes it as its starting point.
+// The spinner owns its entity's rotation: it writes the whole rotation every
+// frame from Angle and Axis, so an axis set in the transform block is replaced by
+// this one. Angle carries over, because Start takes it as the starting point.
+//
+// Rotations are quaternions internally now, so composing this spin onto an
+// authored rotation instead of replacing it is possible — it would need a second
+// property to hold the base rotation, since the saved transform already includes
+// the spin and could not be told apart from it on reload.
 type Spinner struct {
 	// Axis is the rotation axis in the entity's own space. It does not have to
 	// be normalised; the matrix build normalises it.
@@ -51,22 +53,23 @@ func NewSpinner() *Spinner {
 // explicit `angle: 0` could not mean zero.
 func (s *Spinner) Start(ctx *engine.Context) {
 	if s.Angle == 0 {
-		s.Angle = ctx.Entity.Rotation().W()
+		s.Angle = ctx.Entity.RotationAxisAngle().W()
 	}
 }
 
-// Update advances the spin. Writing through SetRotation rather than the field is
+// Update advances the spin. Writing through the accessor rather than the field is
 // what invalidates the cached world matrix of this entity and its children.
 func (s *Spinner) Update(ctx *engine.Context) {
 	axis := s.Axis
 	if axis.Len() == 0 {
-		// A scene that says `axis: [0, 0, 0]` would otherwise build a matrix
-		// full of NaN and the entity would vanish.
+		// A scene that says `axis: [0, 0, 0]` would otherwise build a rotation
+		// full of NaN and the entity would vanish. The engine guards this too;
+		// keeping it here means Axis stays meaningful to read back.
 		axis = mgl32.Vec3{0, 1, 0}
 	}
 
 	s.Angle = wrapDegrees(s.Angle + s.Speed*ctx.DeltaTime)
-	ctx.Entity.SetRotation(mgl32.Vec4{axis.X(), axis.Y(), axis.Z(), s.Angle})
+	ctx.Entity.SetRotationAxisAngle(mgl32.Vec4{axis.X(), axis.Y(), axis.Z(), s.Angle})
 }
 
 // wrapDegrees folds an angle into [0, 360). Without it a spinner left running

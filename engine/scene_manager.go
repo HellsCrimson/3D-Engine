@@ -129,13 +129,27 @@ func (sm *SceneManager) buildSpec(obj *scene.Object) (ObjectSpec, error) {
 		Model: obj.Model,
 		Transform: Transform{
 			Position: mgl32.Vec3(transform.Position),
-			Rotation: mgl32.Vec4(transform.Rotation),
+			// The scene file's axis-angle becomes a quaternion here, at the
+			// boundary. Nothing past this point deals in axes and degrees.
+			Rotation: QuatFromAxisAngle(mgl32.Vec4(transform.Rotation)),
 			Scale:    mgl32.Vec3(transform.Scale),
 		},
 	}
 
 	if obj.Body != nil {
 		spec.Body = &RigidBody{Static: obj.Body.Static}
+	}
+
+	if obj.Material != nil {
+		if obj.Model == "" {
+			// There is no renderer to hang it on, so this would be dropped
+			// silently — and dropped again by the next save, losing it from the
+			// file.
+			utils.Logger().Printf("Object %q has a material but no model; ignoring it", obj.Name)
+		} else {
+			color := mgl32.Vec3(obj.Material.Color)
+			spec.BaseColor = &color
+		}
 	}
 
 	for i := range obj.Components {
