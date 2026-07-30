@@ -36,6 +36,12 @@ const (
 	Operation_OPERATION_LOAD_SCENE      Operation = 8
 	Operation_OPERATION_GET_SCENE_MODES Operation = 9
 	Operation_OPERATION_LOAD_SCENE_MODE Operation = 10
+	// Reparent an existing object. object.id is the child, object.parent_id the
+	// new parent; a parent_id of 0 detaches it to the scene root.
+	Operation_OPERATION_SET_PARENT Operation = 11
+	// Remove an object together with everything below it. REMOVE_OBJECT leaves
+	// the children behind, lifted to the scene root.
+	Operation_OPERATION_REMOVE_TREE Operation = 12
 )
 
 // Enum value maps for Operation.
@@ -52,6 +58,8 @@ var (
 		8:  "OPERATION_LOAD_SCENE",
 		9:  "OPERATION_GET_SCENE_MODES",
 		10: "OPERATION_LOAD_SCENE_MODE",
+		11: "OPERATION_SET_PARENT",
+		12: "OPERATION_REMOVE_TREE",
 	}
 	Operation_value = map[string]int32{
 		"OPERATION_UNSPECIFIED":     0,
@@ -65,6 +73,8 @@ var (
 		"OPERATION_LOAD_SCENE":      8,
 		"OPERATION_GET_SCENE_MODES": 9,
 		"OPERATION_LOAD_SCENE_MODE": 10,
+		"OPERATION_SET_PARENT":      11,
+		"OPERATION_REMOVE_TREE":     12,
 	}
 )
 
@@ -406,7 +416,15 @@ type Object struct {
 	Location *Location              `protobuf:"bytes,3,opt,name=location,proto3" json:"location,omitempty"`
 	// Asset path, used by ADD_OBJECT to say what to load. Populated on read so a
 	// client can round-trip an object it fetched.
-	Model         string `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
+	Model string `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
+	// Encoded handle of this object's parent, or 0 when it sits at the scene
+	// root. GET_OBJECTS returns the world flat — the same way the engine stores
+	// it — and this is what lets a client rebuild the tree. ADD_OBJECT reads it to
+	// attach the new object under an existing one.
+	//
+	// Note that `location` is the object's LOCAL transform, so a child of a moving
+	// parent reports a constant position while sweeping through the world.
+	ParentId      uint64 `protobuf:"varint,5,opt,name=parent_id,json=parentId,proto3" json:"parent_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -467,6 +485,13 @@ func (x *Object) GetModel() string {
 		return x.Model
 	}
 	return ""
+}
+
+func (x *Object) GetParentId() uint64 {
+	if x != nil {
+		return x.ParentId
+	}
+	return 0
 }
 
 type Location struct {
@@ -881,12 +906,13 @@ const file_grpc_engine_proto_rawDesc = "" +
 	"sceneModesB\x06\n" +
 	"\x04body\"1\n" +
 	"\aObjects\x12&\n" +
-	"\aobjects\x18\x01 \x03(\v2\f.grpc.ObjectR\aobjects\"n\n" +
+	"\aobjects\x18\x01 \x03(\v2\f.grpc.ObjectR\aobjects\"\x8b\x01\n" +
 	"\x06Object\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\x04R\x02id\x12*\n" +
 	"\blocation\x18\x03 \x01(\v2\x0e.grpc.LocationR\blocation\x12\x14\n" +
-	"\x05model\x18\x04 \x01(\tR\x05model\"\x85\x01\n" +
+	"\x05model\x18\x04 \x01(\tR\x05model\x12\x1b\n" +
+	"\tparent_id\x18\x05 \x01(\x04R\bparentId\"\x85\x01\n" +
 	"\bLocation\x12)\n" +
 	"\bposition\x18\x01 \x01(\v2\r.grpc.Vector3R\bposition\x12)\n" +
 	"\brotation\x18\x02 \x01(\v2\r.grpc.Vector4R\brotation\x12#\n" +
@@ -911,7 +937,7 @@ const file_grpc_engine_proto_rawDesc = "" +
 	"SceneModes\x12%\n" +
 	"\x05modes\x18\x01 \x03(\v2\x0f.grpc.SceneModeR\x05modes\x12!\n" +
 	"\fcurrent_mode\x18\x02 \x01(\tR\vcurrentMode\x12,\n" +
-	"\x12current_scene_path\x18\x03 \x01(\tR\x10currentScenePath*\xc1\x02\n" +
+	"\x12current_scene_path\x18\x03 \x01(\tR\x10currentScenePath*\xf6\x02\n" +
 	"\tOperation\x12\x19\n" +
 	"\x15OPERATION_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15OPERATION_GET_OBJECTS\x10\x01\x12\x18\n" +
@@ -924,7 +950,9 @@ const file_grpc_engine_proto_rawDesc = "" +
 	"\x14OPERATION_LOAD_SCENE\x10\b\x12\x1d\n" +
 	"\x19OPERATION_GET_SCENE_MODES\x10\t\x12\x1d\n" +
 	"\x19OPERATION_LOAD_SCENE_MODE\x10\n" +
-	"2A\n" +
+	"\x12\x18\n" +
+	"\x14OPERATION_SET_PARENT\x10\v\x12\x19\n" +
+	"\x15OPERATION_REMOVE_TREE\x10\f2A\n" +
 	"\x06Engine\x127\n" +
 	"\x06Stream\x12\x13.grpc.EngineRequest\x1a\x14.grpc.EngineResponse(\x010\x01B\x10Z\x0e3d-engine/grpcb\x06proto3"
 

@@ -22,6 +22,12 @@ enum Operation {
   OPERATION_LOAD_SCENE = 8;
   OPERATION_GET_SCENE_MODES = 9;
   OPERATION_LOAD_SCENE_MODE = 10;
+  // Reparent an existing object. object.id is the child, object.parent_id the
+  // new parent; a parent_id of 0 detaches it to the scene root.
+  OPERATION_SET_PARENT = 11;
+  // Remove an object together with everything below it. REMOVE_OBJECT leaves
+  // the children behind, lifted to the scene root.
+  OPERATION_REMOVE_TREE = 12;
 }
 
 message EngineRequest {
@@ -59,6 +65,15 @@ message Object {
   // Asset path, used by ADD_OBJECT to say what to load. Populated on read so a
   // client can round-trip an object it fetched.
   string model = 4;
+
+  // Encoded handle of this object's parent, or 0 when it sits at the scene
+  // root. GET_OBJECTS returns the world flat — the same way the engine stores
+  // it — and this is what lets a client rebuild the tree. ADD_OBJECT reads it to
+  // attach the new object under an existing one.
+  //
+  // Note that `location` is the object's LOCAL transform, so a child of a moving
+  // parent reports a constant position while sweeping through the world.
+  uint64 parent_id = 5;
 }
 
 message Location {

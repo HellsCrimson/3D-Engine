@@ -110,6 +110,16 @@ func (eg *engineServer) handleRequest(req *egrpc.EngineRequest) *egrpc.EngineRes
 			return errorResponse(egrpc.Operation_OPERATION_UPDATE_OBJECT, err)
 		}
 		return emptySuccessResponse(egrpc.Operation_OPERATION_UPDATE_OBJECT)
+	case egrpc.Operation_OPERATION_REMOVE_TREE:
+		if err := eg.removeTree(req.GetObject()); err != nil {
+			return errorResponse(egrpc.Operation_OPERATION_REMOVE_TREE, err)
+		}
+		return emptySuccessResponse(egrpc.Operation_OPERATION_REMOVE_TREE)
+	case egrpc.Operation_OPERATION_SET_PARENT:
+		if err := eg.setParent(req.GetObject()); err != nil {
+			return errorResponse(egrpc.Operation_OPERATION_SET_PARENT, err)
+		}
+		return emptySuccessResponse(egrpc.Operation_OPERATION_SET_PARENT)
 	case egrpc.Operation_OPERATION_LOAD_SCENE:
 		if err := eg.loadScene(req.GetScene()); err != nil {
 			return errorResponse(egrpc.Operation_OPERATION_LOAD_SCENE, err)
@@ -169,9 +179,12 @@ func toProtoObject(info ObjectInfo) *egrpc.Object {
 	rotation := AxisAngleFromQuat(info.Transform.Rotation)
 
 	return &egrpc.Object{
-		Id:    info.Handle.Encode(),
-		Name:  info.Name,
-		Model: info.Model,
+		Id: info.Handle.Encode(),
+		// Zero for a root entity, which is what NoHandle encodes to, so a client
+		// can rebuild the tree from the flat list.
+		ParentId: info.Parent.Encode(),
+		Name:     info.Name,
+		Model:    info.Model,
 		Location: &egrpc.Location{
 			Position: &egrpc.Vector3{
 				X: info.Transform.Position.X(),
@@ -209,6 +222,9 @@ func (eg *engineServer) addObject(obj *egrpc.Object) (*egrpc.Object, error) {
 	if obj.Location != nil {
 		spec.Transform = transformFromProto(obj.Location, spec.Transform)
 	}
+	// Zero decodes to NoHandle, which SpawnObject reads as "no parent", so a
+	// client that never sets the field behaves exactly as before.
+	spec.Parent = DecodeHandle(obj.GetParentId())
 
 	handle, err := eg.app.Spawn(spec)
 	if err != nil {
@@ -230,6 +246,38 @@ func (eg *engineServer) removeObject(obj *egrpc.Object) error {
 	handle := DecodeHandle(obj.GetId())
 	if err := eg.app.Despawn(handle); err != nil {
 		return status.Errorf(codes.NotFound, "%v", err)
+	}
+	return nil
+}
+
+// removeTree is REMOVE_OBJECT's cascading twin, mirroring the engine's
+// DespawnObject/DespawnTree pair: the former lifts the children to the scene
+// root, this one takes them with it.
+func (eg *engineServer) removeTree(obj *egrpc.Object) error {
+	if obj == nil {
+		return status.Error(codes.InvalidArgument, "object is required")
+	}
+
+	handle := DecodeHandle(obj.GetId())
+	if err := eg.app.DespawnSubtree(handle); err != nil {
+		return status.Errorf(codes.NotFound, "%v", err)
+	}
+	return nil
+}
+
+// setParent reparents an existing object. A parent_id of zero decodes to
+// NoHandle and detaches the object to the scene root.
+func (eg *engineServer) setParent(obj *egrpc.Object) error {
+	if obj == nil {
+		return status.Error(codes.InvalidArgument, "object is required")
+	}
+
+	child := DecodeHandle(obj.GetId())
+	parent := DecodeHandle(obj.GetParentId())
+
+	if err := eg.app.SetParent(child, parent); err != nil {
+		// A cycle is a bad request, not a missing object: both handles resolved.
+		return status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	return nil
 }
