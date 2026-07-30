@@ -41,6 +41,11 @@ type Editor struct {
 	// [3]float32, not an mgl32.Vec3.
 	draftColor [3]float32
 
+	// draftComponents backs the component property editor. Like the transform
+	// draft it is refreshed from the entity except while a widget is active, so a
+	// component that drives its own property does not fight the drag.
+	draftComponents []engine.ComponentInfo
+
 	editing bool
 
 	sceneModes    []string

@@ -2,6 +2,7 @@ package editor
 
 import (
 	"fmt"
+	"strings"
 
 	"3d-engine/engine"
 
@@ -322,6 +323,142 @@ func (e *Editor) drawEntityNode(row engine.ObjectInfo, byHandle map[engine.Handl
 	imgui.PopID()
 }
 
+// drawComponents lists the entity's components and lets their properties be
+// edited live.
+//
+// The properties shown are exactly the ones a scene file can set — the engine
+// reflects over the same exported, yaml-tagged fields the saver walks — so
+// anything tunable here survives a save, and nothing here can be tuned into a
+// state the file cannot describe.
+func (e *Editor) drawComponents() {
+	// Same rule as the transform and the colour: follow the entity except while
+	// a widget is being worked, or a component driving its own property (a
+	// Spinner's angle) would fight the drag every frame.
+	if !imgui.IsAnyItemActive() {
+		components, ok := e.app.ComponentsOf(e.selected)
+		if !ok {
+			e.draftComponents = nil
+			return
+		}
+		e.draftComponents = components
+	}
+
+	if len(e.draftComponents) == 0 {
+		imgui.TextDisabled("No components")
+		return
+	}
+
+	for i := range e.draftComponents {
+		component := &e.draftComponents[i]
+
+		label := component.Type
+		if label == "" {
+			// Unregistered: it cannot be named in a scene file and would fail a
+			// save, so say so here rather than showing a blank header.
+			label = component.GoType + "  (not registered)"
+		}
+
+		imgui.PushIDStr(fmt.Sprintf("component-%d", component.Index))
+		if imgui.CollapsingHeaderTreeNodeFlagsV(label, imgui.TreeNodeFlagsDefaultOpen) {
+			e.drawComponentFields(component)
+		}
+		imgui.PopID()
+	}
+}
+
+func (e *Editor) drawComponentFields(component *engine.ComponentInfo) {
+	if len(component.Fields) == 0 {
+		imgui.TextDisabled("No properties")
+		return
+	}
+
+	imgui.PushItemWidth(200)
+	defer imgui.PopItemWidth()
+
+	for i := range component.Fields {
+		field := &component.Fields[i]
+		imgui.PushIDStr(fmt.Sprintf("field-%d", i))
+
+		if e.drawComponentField(field) {
+			// The type name goes with the write: the draft is a snapshot, and if
+			// the entity's components changed underneath it the engine refuses
+			// rather than editing whatever now sits at that index.
+			if err := e.app.SetComponentField(e.selected, component.Index, component.Type, *field); err != nil {
+				e.status = err.Error()
+			} else {
+				e.status = ""
+			}
+		}
+
+		imgui.PopID()
+	}
+}
+
+// drawComponentField draws one property and reports whether it changed.
+func (e *Editor) drawComponentField(field *engine.ComponentField) bool {
+	switch field.Kind {
+	case engine.FieldBool:
+		return imgui.Checkbox(field.Name, &field.Bool)
+
+	case engine.FieldFloat:
+		return imgui.DragFloatV(field.Name, &field.Float, 0.01, -1e6, 1e6, "%.3f", 0)
+
+	case engine.FieldInt:
+		value := int32(field.Int)
+		if imgui.DragIntV(field.Name, &value, 1, -1e6, 1e6, "%d", 0) {
+			field.Int = int64(value)
+			return true
+		}
+		return false
+
+	case engine.FieldVec3:
+		// Colours get a colour picker rather than three numbers, which is most
+		// of what makes tuning a light bearable.
+		if looksLikeColour(field.Name) {
+			colour := [3]float32(field.Vec3)
+			if imgui.ColorEdit3(field.Name, &colour) {
+				field.Vec3 = mgl32.Vec3(colour)
+				return true
+			}
+			return false
+		}
+		vector := [3]float32(field.Vec3)
+		if imgui.DragFloat3V(field.Name, &vector, 0.01, -1e6, 1e6, "%.3f", 0) {
+			field.Vec3 = mgl32.Vec3(vector)
+			return true
+		}
+		return false
+
+	case engine.FieldVec4:
+		vector := [4]float32(field.Vec4)
+		if imgui.DragFloat4V(field.Name, &vector, 0.01, -1e6, 1e6, "%.3f", 0) {
+			field.Vec4 = mgl32.Vec4(vector)
+			return true
+		}
+		return false
+
+	case engine.FieldString:
+		return imgui.InputTextWithHint(field.Name, "", &field.String, 0, nil)
+
+	default:
+		imgui.TextDisabled(fmt.Sprintf("%s (%s: no editor)", field.Name, field.Kind))
+		return false
+	}
+}
+
+// looksLikeColour reports whether a three-float property is most likely a colour.
+//
+// It keys off the names the built-in lights and materials already use. A false
+// positive costs a colour picker where three drags were wanted, which is a
+// recoverable annoyance rather than a wrong value.
+func looksLikeColour(name string) bool {
+	switch strings.ToLower(name) {
+	case "color", "colour", "ambient", "diffuse", "specular", "tint", "emission", "basecolor":
+		return true
+	}
+	return false
+}
+
 // drawMaterial is the base-colour picker.
 //
 // The colour only shows on geometry with no diffuse texture — a fully textured
@@ -551,4 +688,8 @@ func (e *Editor) drawInspector(rows []engine.ObjectInfo, byHandle map[engine.Han
 	if e.status != "" {
 		imgui.Text(e.status)
 	}
+
+	imgui.Separator()
+	imgui.SeparatorText("Components")
+	e.drawComponents()
 }
