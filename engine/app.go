@@ -222,10 +222,16 @@ func New(opts Options) (*App, error) {
 	}
 	a.resetDynamicState()
 
-	// Wrapped rather than passed straight through, so an overlay using the
-	// pointer does not also spin the camera.
+	// Wrapped rather than passed straight through, for two reasons.
+	//
+	// State.CaptureCursor is the authority on whether the mouse is flying the
+	// camera at all: with the cursor released the pointer belongs to the editor,
+	// and moving it towards a panel must not drag the camera along on the way.
+	// The overlay check alone is not enough, because an overlay only claims the
+	// pointer once it is already over one of its windows — every pixel of the 3D
+	// view in between would still have turned the camera.
 	a.Window.SetCursorPosCallback(func(w *glfw.Window, xpos, ypos float64) {
-		if a.overlayCapturesMouse() {
+		if !a.State.CaptureCursor || a.overlayCapturesMouse() {
 			return
 		}
 		a.Camera.MouseCallback(w, xpos, ypos)

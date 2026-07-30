@@ -103,6 +103,17 @@ func (c *Camera) ProcessDown(isRunning bool, deltaTime float32) {
 	c.CameraPos = c.CameraPos.Sub(c.CameraUp.Mul(c.Step(isRunning, deltaTime)))
 }
 
+// ResetMouse makes the next MouseCallback establish a new origin instead of
+// measuring a delta from the last one.
+//
+// It is what keeps releasing and re-capturing the cursor from snapping the view:
+// while the cursor is free the pointer moves without the camera hearing about it,
+// so LastX/LastY go stale, and the first position after re-capture would
+// otherwise be read as one enormous mouse movement.
+func (c *Camera) ResetMouse() {
+	c.firstMouse = true
+}
+
 func (c *Camera) MouseCallback(window *glfw.Window, xpos, ypos float64) {
 	if c.firstMouse {
 		c.LastX = float32(xpos)

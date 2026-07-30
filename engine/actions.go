@@ -152,6 +152,11 @@ func (a *App) handleMovement() {
 func (a *App) setCursorCaptured(captured bool) {
 	a.State.CaptureCursor = captured
 	if captured {
+		// The pointer moved while it was free and the camera did not follow, so
+		// its idea of where the mouse was is stale. Without this the first
+		// position after re-capturing reads as one huge movement and the view
+		// snaps somewhere else.
+		a.Camera.ResetMouse()
 		a.Window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
 		return
 	}
